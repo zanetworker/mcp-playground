@@ -1,0 +1,14 @@
+# MCP SSE Client Python Requirements
+
+# Core dependencies
+mcp>=0.1.0  # Model Context Protocol library
+pydantic>=2.0.0  # Data validation library
+
+# Testing dependencies
+pytest>=7.0.0  # Testing framework
+pytest-asyncio>=0.18.0  # Async support for pytest
+
+# Development dependencies
+pylint>=2.15.0  # Linting
+black>=22.10.0  # Code formatting
+wheel>=0.37.0  # For building wheels
