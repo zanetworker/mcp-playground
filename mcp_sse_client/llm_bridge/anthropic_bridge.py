@@ -6,18 +6,19 @@ import anthropic
 from ..client import ToolDef
 from ..format_converters import to_anthropic_format
 from .base import LLMBridge
+from .models import DEFAULT_ANTHROPIC_MODEL # Import default model
 
 
 class AnthropicBridge(LLMBridge):
     """Anthropic-specific implementation of the LLM Bridge."""
     
-    def __init__(self, mcp_client, api_key, model="claude-3-opus-20240229"):
+    def __init__(self, mcp_client, api_key, model=DEFAULT_ANTHROPIC_MODEL): # Use imported default
         """Initialize Anthropic bridge with API key and model.
         
         Args:
             mcp_client: An initialized MCPClient instance
             api_key: Anthropic API key
-            model: Anthropic model to use (default: claude-3-opus-20240229)
+            model: Anthropic model to use (default: from models.py)
         """
         super().__init__(mcp_client)
         self.llm_client = anthropic.Anthropic(api_key=api_key)

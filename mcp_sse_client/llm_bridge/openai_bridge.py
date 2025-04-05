@@ -7,18 +7,19 @@ import openai
 from ..client import ToolDef
 from ..format_converters import to_openai_format
 from .base import LLMBridge
+from .models import DEFAULT_OPENAI_MODEL # Import default model
 
 
 class OpenAIBridge(LLMBridge):
     """OpenAI-specific implementation of the LLM Bridge."""
     
-    def __init__(self, mcp_client, api_key, model="gpt-4o"):
+    def __init__(self, mcp_client, api_key, model=DEFAULT_OPENAI_MODEL): # Use imported default
         """Initialize OpenAI bridge with API key and model.
         
         Args:
             mcp_client: An initialized MCPClient instance
             api_key: OpenAI API key
-            model: OpenAI model to use (default: gpt-4o)
+            model: OpenAI model to use (default: from models.py)
         """
         super().__init__(mcp_client)
         self.llm_client = openai.OpenAI(api_key=api_key)

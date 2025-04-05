@@ -8,7 +8,9 @@ This client provides a simple interface for:
 - Listing available tools from an MCP endpoint
 - Invoking tools with parameters
 - Handling tool invocation results
-- Integrating with LLMs (OpenAI, Anthropic) for AI-driven tool selection
+- Integrating with LLMs (OpenAI, Anthropic, Ollama) for AI-driven tool selection
+
+The project includes a Streamlit application for interactive testing of the client and LLM integrations.
 
 ## Installation
 
@@ -103,16 +105,7 @@ See the `mcp_sse_client/examples` directory for more programmatic examples.
 
 ### Interactive Testing with Streamlit App
 
-This project includes a Streamlit application for interactively testing the MCP client and LLM integrations.
-
-**Features:**
-- Connect to any MCP SSE endpoint.
-- Select between OpenAI and Anthropic LLM providers.
-- View available tools and their parameters.
-- Chat interface to send queries to the LLM.
-- Visualize LLM reasoning, tool selection, and tool results.
-- Conversation history management.
-- Smart display and extraction of tool output (JSON, Markdown, Text).
+The project includes a Streamlit application that provides an interactive web UI for testing the MCP client and LLM integrations. It allows you to connect to MCP endpoints, select LLM providers, and interact with tools through a chat interface.
 
 **To run the Streamlit app:**
 1. Navigate to the `mcp-streamlit-app` directory:
@@ -183,6 +176,16 @@ bridge = AnthropicBridge(mcp_client, api_key, model="claude-3-opus-20240229")
 - `api_key`: Anthropic API key
 - `model`: Anthropic model to use (default: claude-3-opus-20240229)
 
+#### OllamaBridge
+
+```python
+bridge = OllamaBridge(mcp_client, model="llama3", host=None)
+```
+
+- `mcp_client`: An initialized MCPClient instance
+- `model`: Ollama model to use (default: llama3)
+- `host`: Optional Ollama host URL (default: None, uses default host)
+
 #### Common Bridge Methods
 
 ##### `async fetch_tools() -> List[ToolDef]`
@@ -238,6 +241,7 @@ Attributes:
 - `pydantic`
 - `openai` (for OpenAI integration)
 - `anthropic` (for Anthropic integration)
+- `ollama` (for Ollama integration)
 - `streamlit` (for the interactive test app)
 - `Markdown` (for the interactive test app)
 

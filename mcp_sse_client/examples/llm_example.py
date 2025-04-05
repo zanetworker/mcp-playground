@@ -7,13 +7,32 @@ how the LLM makes its tool selection decisions.
 """
 
 import asyncio
+import asyncio
 import sys
 import os
 import json
 import textwrap
+import asyncio
+import sys
+import os
+import json
+import textwrap
+import asyncio
+import sys
+import os
+import json
+import textwrap
+import argparse  # Import argparse
 from mcp_sse_client import MCPClient
-from mcp_sse_client.llm_bridge import OpenAIBridge, AnthropicBridge
+# Import all bridges
+from mcp_sse_client.llm_bridge import OpenAIBridge, AnthropicBridge, OllamaBridge 
 from mcp_sse_client.format_converters import to_openai_format, to_anthropic_format
+# Import model definitions
+from mcp_sse_client.llm_bridge.models import (
+    OPENAI_MODELS, DEFAULT_OPENAI_MODEL, 
+    ANTHROPIC_MODELS, DEFAULT_ANTHROPIC_MODEL,
+    DEFAULT_OLLAMA_MODEL # Import Ollama default
+)
 
 
 def print_section(title, content, indent=0):
@@ -69,38 +88,97 @@ def extract_reasoning(llm_response, provider):
 
 async def main():
     """Run the MCP-LLM integration example with focus on understanding tool selection."""
+    
+    # --- Argument Parsing ---
+    parser = argparse.ArgumentParser(description="MCP-LLM Integration Example with Tool Selection Analysis")
+    
+    # Use imported model lists and defaults
+    parser.add_argument(
+        "--provider", 
+        choices=["openai", "anthropic", "ollama"], # Add ollama
+        help="Select the LLM provider (openai, anthropic, or ollama). If not provided, you will be prompted."
+    )
+    parser.add_argument(
+        "--openai-model", 
+        choices=OPENAI_MODELS, 
+        default=DEFAULT_OPENAI_MODEL, 
+        help=f"Select the OpenAI model to use (default: {DEFAULT_OPENAI_MODEL}). Choices: {', '.join(OPENAI_MODELS)}"
+    )
+    parser.add_argument(
+        "--anthropic-model", 
+        choices=ANTHROPIC_MODELS, 
+        default=DEFAULT_ANTHROPIC_MODEL, 
+        help=f"Select the Anthropic model to use (default: {DEFAULT_ANTHROPIC_MODEL}). Choices: {', '.join(ANTHROPIC_MODELS)}"
+    )
+    parser.add_argument(
+        "--ollama-model", 
+        default=DEFAULT_OLLAMA_MODEL, 
+        help=f"Specify the Ollama model name (default: {DEFAULT_OLLAMA_MODEL}). Ensure it's available locally."
+    )
+    parser.add_argument(
+        "--ollama-host", 
+        help="Specify the Ollama host URL (e.g., 'http://localhost:11434'). Uses library default if not set."
+    )
+    parser.add_argument(
+        "--endpoint", 
+        default=os.environ.get("MCP_ENDPOINT", "http://localhost:8000/sse"), 
+        help="MCP SSE endpoint URL (default: http://localhost:8000/sse or MCP_ENDPOINT env var)"
+    )
+    parser.add_argument("--openai-key", help="OpenAI API key (overrides OPENAI_API_KEY env var)")
+    parser.add_argument("--anthropic-key", help="Anthropic API key (overrides ANTHROPIC_API_KEY env var)")
+    # No API key arg for Ollama
+    
+    args = parser.parse_args()
+    
     print("Starting MCP-LLM Integration Example...")
     
-    # Get endpoint
-    endpoint = os.environ.get("MCP_ENDPOINT", "http://localhost:8000/sse")
+    # --- Configuration Setup ---
+    endpoint = args.endpoint
     
+    # Determine provider
+    provider = args.provider
+    if not provider:
+        provider = input("Select LLM provider (openai/anthropic): ").strip().lower()
+
     # Initialize MCP client
     client = MCPClient(endpoint)
-    
-    # Choose LLM provider
-    provider = input("Select LLM provider (openai/anthropic): ").strip().lower()
-    
+    print(f"Connecting to MCP server at: {endpoint}")
+
+    # Setup bridge based on provider
     if provider == "openai":
-        api_key = os.environ.get("OPENAI_API_KEY")
+        api_key = args.openai_key or os.environ.get("OPENAI_API_KEY")
         if not api_key:
             api_key = input("Enter OpenAI API key: ").strip()
         
-        bridge = OpenAIBridge(client, api_key)
-        print("Using OpenAI LLM bridge")
+        model = args.openai_model
+        bridge = OpenAIBridge(client, api_key, model=model)
+        print(f"Using OpenAI LLM bridge with model: {model}")
     
     elif provider == "anthropic":
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        api_key = args.anthropic_key or os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             api_key = input("Enter Anthropic API key: ").strip()
         
-        bridge = AnthropicBridge(client, api_key)
-        print("Using Anthropic LLM bridge")
+        model = args.anthropic_model
+        bridge = AnthropicBridge(client, api_key, model=model)
+        print(f"Using Anthropic LLM bridge with model: {model}")
+
+    elif provider == "ollama":
+        # No API key needed for Ollama
+        model = args.ollama_model
+        host = args.ollama_host # Will be None if not provided, which is handled by the bridge
+        bridge = OllamaBridge(client, model=model, host=host)
+        print(f"Using Ollama LLM bridge with model: {model} (Host: {host or 'Default'})")
+        # Optional: Add connection check
+        if not await bridge.check_connection():
+             print(f"Warning: Could not verify connection to Ollama. Ensure it's running and model '{model}' is available.", file=sys.stderr)
     
     else:
         print(f"Unsupported provider: {provider}", file=sys.stderr)
         return
-    
-    # Fetch tools
+
+    # --- Tool Fetching and Interaction ---
+    print("Fetching tools from server...")
     tools = await bridge.fetch_tools()
     
     # Show tool summary
@@ -117,16 +195,33 @@ async def main():
         print("Processing query...")
         
         # Get the formatted tools that will be sent to the LLM
-        if provider == "openai":
+        if provider == "openai" or provider == "ollama": # Ollama uses OpenAI format
             formatted_tools = to_openai_format(tools)
-        else:  # anthropic
+        elif provider == "anthropic":
             formatted_tools = to_anthropic_format(tools)
-        
+        else:
+             formatted_tools = [] # Should not happen due to earlier check
+
         # Process the query
         result = await bridge.process_query(query)
         
         # Extract and show LLM's reasoning
-        reasoning = extract_reasoning(result["llm_response"], provider)
+        # Need to handle different response structures
+        llm_response = result["llm_response"]
+        reasoning = "[Could not extract reasoning]" # Default
+        if provider == "openai":
+            if hasattr(llm_response.choices[0].message, 'content') and llm_response.choices[0].message.content:
+                reasoning = llm_response.choices[0].message.content
+        elif provider == "anthropic":
+            text_parts = [c.text for c in llm_response.content if hasattr(c, 'type') and c.type == "text"]
+            if text_parts: reasoning = "\n".join(text_parts)
+        elif provider == "ollama":
+             if isinstance(llm_response, dict) and 'message' in llm_response and llm_response['message'].get('content'):
+                 # Check if tool calls exist; if so, reasoning might be empty or just whitespace
+                 if not llm_response['message'].get('tool_calls'):
+                     reasoning = llm_response['message']['content']
+                 # Optionally, could try to extract pre-tool-call text if available, but Ollama structure varies
+        
         print_section("LLM Reasoning", reasoning)
         
         # Show tool selection decision
