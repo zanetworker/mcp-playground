@@ -18,8 +18,8 @@ class TestMCPClient(unittest.TestCase):
 
     def test_init_valid_endpoint(self):
         """Test initialization with a valid endpoint."""
-        client = MCPClient("http://example.com/sse")
-        self.assertEqual(client.endpoint, "http://example.com/sse")
+        client = MCPClient(self.endpoint)
+        self.assertEqual(client.endpoint, self.endpoint)
 
     def test_init_invalid_endpoint(self):
         """Test initialization with an invalid endpoint."""

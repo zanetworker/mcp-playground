@@ -21,10 +21,14 @@ class ToolParameter:
         name: Parameter name
         parameter_type: Parameter type (e.g., "string", "number")
         description: Parameter description
+        required: Whether the parameter is required
+        default: Default value for the parameter
     """
     name: str
     parameter_type: str
     description: str
+    required: bool = False
+    default: Any = None
 
 
 @dataclass
@@ -84,12 +88,15 @@ class MCPClient:
                 
                 for tool in tools_result.tools:
                     parameters = []
+                    required_params = tool.inputSchema.get("required", [])
                     for param_name, param_schema in tool.inputSchema.get("properties", {}).items():
                         parameters.append(
                             ToolParameter(
                                 name=param_name,
                                 parameter_type=param_schema.get("type", "string"),
                                 description=param_schema.get("description", ""),
+                                required=param_name in required_params,
+                                default=param_schema.get("default"),
                             )
                         )
                     tools.append(

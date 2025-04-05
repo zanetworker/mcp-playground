@@ -4,6 +4,10 @@
 mcp>=0.1.0  # Model Context Protocol library
 pydantic>=2.0.0  # Data validation library
 
+# LLM integration dependencies
+openai>=1.70.0  # OpenAI API client
+anthropic>=0.15.0  # Anthropic API client
+
 # Testing dependencies
 pytest>=7.0.0  # Testing framework
 pytest-asyncio>=0.18.0  # Async support for pytest

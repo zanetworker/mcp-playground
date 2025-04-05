@@ -26,17 +26,17 @@ async def main():
             for param in tool.parameters:
                 print(f"    - {param.name} ({param.parameter_type}): {param.description}")
         
-        # Invoke a tool
-        print("\nInvoking tool 'convert_document'...")
-        result = await client.invoke_tool(
-            "convert_document", 
-            {
-                "source": "https://www.example.com",
-                "enable_ocr": False
-            }
-        )
-        print(f"\nTool result: {result.content}")
-        print(f"Error code: {result.error_code}")
+        # # Invoke a tool
+        # print("\nInvoking tool 'convert_document'...")
+        # result = await client.invoke_tool(
+        #     "convert_document", 
+        #     {
+        #         "source": "https://arxiv.org/pdf/2404.09982",
+        #         "enable_ocr": False
+        #     }
+        # )
+        # print(f"\nTool result: {result.content}")
+        # print(f"Error code: {result.error_code}")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         import traceback

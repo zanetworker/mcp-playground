@@ -8,6 +8,7 @@ This client provides a simple interface for:
 - Listing available tools from an MCP endpoint
 - Invoking tools with parameters
 - Handling tool invocation results
+- Integrating with LLMs (OpenAI, Anthropic) for AI-driven tool selection
 
 ## Installation
 
@@ -63,7 +64,70 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-See the `mcp_sse_client/examples` directory for more examples.
+### LLM Integration Example
+
+```python
+import asyncio
+import os
+from mcp_sse_client import MCPClient, OpenAIBridge
+
+async def main():
+    # Initialize the client with your MCP endpoint
+    client = MCPClient("http://localhost:8000/sse")
+    
+    # Create an OpenAI bridge
+    openai_bridge = OpenAIBridge(
+        client,
+        api_key=os.environ.get("OPENAI_API_KEY"),
+        model="gpt-4o"  # or any other OpenAI model
+    )
+    
+    # Process a user query
+    result = await openai_bridge.process_query(
+        "I need to convert a PDF document to text. Can you help me with that?"
+    )
+    
+    # The LLM will automatically select the appropriate tool and parameters
+    if result["tool_call"]:
+        print(f"Tool selected: {result['tool_call']['name']}")
+        print(f"Parameters: {result['tool_call']['parameters']}")
+        print(f"Result: {result['tool_result'].content}")
+    else:
+        print("No tool was selected by the LLM")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+See the `mcp_sse_client/examples` directory for more programmatic examples.
+
+### Interactive Testing with Streamlit App
+
+This project includes a Streamlit application for interactively testing the MCP client and LLM integrations.
+
+**Features:**
+- Connect to any MCP SSE endpoint.
+- Select between OpenAI and Anthropic LLM providers.
+- View available tools and their parameters.
+- Chat interface to send queries to the LLM.
+- Visualize LLM reasoning, tool selection, and tool results.
+- Conversation history management.
+- Smart display and extraction of tool output (JSON, Markdown, Text).
+
+**To run the Streamlit app:**
+1. Navigate to the `mcp-streamlit-app` directory:
+   ```bash
+   cd mcp-streamlit-app
+   ```
+2. Install requirements:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Run the app:
+   ```bash
+   streamlit run app.py
+   ```
+   (Alternatively, use the `./run.sh` script in the `mcp-streamlit-app` directory).
 
 ## API Reference
 
@@ -95,6 +159,45 @@ Parameters:
 Returns:
 - A `ToolInvocationResult` containing the tool's response
 
+### LLM Integration
+
+The library provides integration with popular LLM providers to enable AI-driven tool selection and invocation.
+
+#### OpenAIBridge
+
+```python
+bridge = OpenAIBridge(mcp_client, api_key, model="gpt-4o")
+```
+
+- `mcp_client`: An initialized MCPClient instance
+- `api_key`: OpenAI API key
+- `model`: OpenAI model to use (default: gpt-4o)
+
+#### AnthropicBridge
+
+```python
+bridge = AnthropicBridge(mcp_client, api_key, model="claude-3-opus-20240229")
+```
+
+- `mcp_client`: An initialized MCPClient instance
+- `api_key`: Anthropic API key
+- `model`: Anthropic model to use (default: claude-3-opus-20240229)
+
+#### Common Bridge Methods
+
+##### `async fetch_tools() -> List[ToolDef]`
+
+Fetches available tools from the MCP endpoint.
+
+##### `async process_query(query: str) -> Dict[str, Any]`
+
+Processes a user query through the LLM and executes any tool calls.
+
+Returns a dictionary containing:
+- `llm_response`: The raw LLM response
+- `tool_call`: The parsed tool call (if any)
+- `tool_result`: The result of the tool invocation (if any)
+
 ### Data Classes
 
 #### ToolDef
@@ -116,6 +219,8 @@ Attributes:
 - `name`: Parameter name
 - `parameter_type`: Parameter type (e.g., "string", "number")
 - `description`: Parameter description
+- `required`: Whether the parameter is required
+- `default`: Default value for the parameter
 
 #### ToolInvocationResult
 
@@ -128,10 +233,15 @@ Attributes:
 ## Requirements
 
 - Python 3.7+
-- mcp library
-- pydantic
+- `requests`
+- `sseclient-py`
+- `pydantic`
+- `openai` (for OpenAI integration)
+- `anthropic` (for Anthropic integration)
+- `streamlit` (for the interactive test app)
+- `Markdown` (for the interactive test app)
 
-See `requirements.txt` for specific version requirements.
+See `requirements.txt` (root) and `mcp-streamlit-app/requirements.txt` for specific version requirements.
 
 ## Development
 
@@ -190,4 +300,4 @@ Please follow these steps when contributing:
 
 ## License
 
-[Add license information here]
+This project is licensed under the MIT License - see the LICENSE file for details.
