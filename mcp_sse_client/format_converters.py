@@ -12,12 +12,12 @@ TYPE_MAPPING = {
     "float": "number",
     "list": "array",
     "dict": "object",
-    "boolean": "boolean",  # Already correct but included for completeness
-    "string": "string",    # Already correct but included for completeness
-    "integer": "integer",  # Already correct but included for completeness
-    "number": "number",    # Already correct but included for completeness
-    "array": "array",      # Already correct but included for completeness
-    "object": "object"     # Already correct but included for completeness
+    "boolean": "boolean",
+    "string": "string",
+    "integer": "integer",
+    "number": "number",
+    "array": "array",
+    "object": "object"
 }
 
 
