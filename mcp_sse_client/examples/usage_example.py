@@ -14,7 +14,7 @@ async def main():
     try:
         # Initialize the client
         print("Initializing client...")
-        client = MCPClient("http://localhost:8000/sse")
+        client = MCPClient("http://localhost:8001/sse")
         
         # List available tools
         print("Listing available tools...")

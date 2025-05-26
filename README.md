@@ -41,8 +41,12 @@ import asyncio
 from mcp_sse_client import MCPClient
 
 async def main():
-    # Connect to an MCP endpoint
-    client = MCPClient("http://localhost:8000/sse")
+    # Connect to an MCP endpoint with optional timeout and retry settings
+    client = MCPClient(
+        "http://localhost:8000/sse",
+        timeout=30.0,      # Connection timeout in seconds
+        max_retries=3      # Maximum retry attempts
+    )
     
     # List available tools
     tools = await client.list_tools()
@@ -54,6 +58,7 @@ async def main():
         {"x": 10, "y": 5, "operation": "add"}
     )
     print(f"Result: {result.content}")  # Output: Result: 15
+    print(f"Success: {result.error_code == 0}")
 
 asyncio.run(main())
 ```
@@ -160,18 +165,35 @@ Content: {"temperature": 18.5, "conditions": "Partly cloudy", "humidity": 65, "w
 
 ### 4. Interactive Testing UI
 
-The included Streamlit app provides a user-friendly interface for:
-- Connecting to any MCP endpoint
-- Selecting between OpenAI, Anthropic, or Ollama LLMs
-- Viewing available tools and their parameters
-- Testing tools through natural language in a chat interface
-- Visualizing tool selection reasoning and results
+The included Streamlit app provides a comprehensive testing interface with enhanced features:
+
+**Key Features:**
+- **Multiple Chat Modes:**
+  - **Auto Mode**: LLM automatically decides when to use tools
+  - **Chat Mode**: Direct conversation without MCP tools
+  - **Tools Mode**: Always attempt to use MCP tools
+- **Multi-LLM Support**: OpenAI, Anthropic, and Ollama integration
+- **Dynamic Configuration**: Connect to any MCP endpoint with real-time status
+- **Tool Discovery**: Automatic detection and display of available tools
+- **Beautiful Response Formatting**: Special formatting for structured data (e.g., JIRA issues)
+- **Error Handling**: Robust connection management with clear error messages
+- **Ollama Integration**: Automatic model detection and selection
+
+**Enhanced UI Features:**
+- Real-time connection status indicators
+- Expandable tool parameter documentation
+- Chat history with proper message formatting
+- Configurable timeouts and retry settings
+- Debug information for troubleshooting
 
 To run the Streamlit app:
 ```bash
 cd mcp-streamlit-app
+pip install -r requirements.txt
 streamlit run app.py
 ```
+
+The app automatically handles event loop management for seamless operation in the Streamlit environment.
 
 ## Installation
 
@@ -202,10 +224,13 @@ The client supports multiple LLM providers for AI-driven tool selection:
 ### MCPClient
 
 ```python
-client = MCPClient(endpoint)
+client = MCPClient(endpoint, timeout=30.0, max_retries=3)
 ```
 
+**Parameters:**
 - `endpoint`: The MCP endpoint URL (must be http or https)
+- `timeout`: Connection timeout in seconds (default: 30.0)
+- `max_retries`: Maximum number of retry attempts (default: 3)
 
 #### Methods
 
@@ -213,9 +238,58 @@ client = MCPClient(endpoint)
 
 Lists available tools from the MCP endpoint.
 
+**Raises:**
+- `MCPConnectionError`: If connection fails after all retries
+- `MCPTimeoutError`: If operation times out
+
 ##### `async invoke_tool(tool_name: str, kwargs: Dict[str, Any]) -> ToolInvocationResult`
 
 Invokes a specific tool with parameters.
+
+**Parameters:**
+- `tool_name`: Name of the tool to invoke
+- `kwargs`: Dictionary of parameters to pass to the tool
+
+**Returns:**
+- `ToolInvocationResult` with `content` (str) and `error_code` (int, 0 for success)
+
+**Raises:**
+- `MCPConnectionError`: If connection fails after all retries
+- `MCPTimeoutError`: If operation times out
+
+##### `async check_connection() -> bool`
+
+Check if the MCP endpoint is reachable.
+
+**Returns:**
+- `True` if connection is successful, `False` otherwise
+
+##### `get_endpoint_info() -> Dict[str, Any]`
+
+Get information about the configured endpoint.
+
+**Returns:**
+- Dictionary with endpoint information including URL components, timeout, and retry settings
+
+### Error Handling
+
+The client includes robust error handling with specific exception types:
+
+```python
+from mcp_sse_client import MCPClient, MCPConnectionError, MCPTimeoutError
+
+try:
+    client = MCPClient("http://localhost:8000/sse")
+    tools = await client.list_tools()
+except MCPConnectionError as e:
+    print(f"Connection failed: {e}")
+except MCPTimeoutError as e:
+    print(f"Operation timed out: {e}")
+```
+
+**Exception Types:**
+- `MCPConnectionError`: Raised when connection fails after all retry attempts
+- `MCPTimeoutError`: Raised when operations exceed the configured timeout
 
 ### LLM Bridges
 
@@ -243,16 +317,68 @@ bridge = OllamaBridge(mcp_client, model="llama3", host=None)
 
 Processes a user query through the LLM and executes any tool calls.
 
+## Advanced Features
+
+### Retry Logic and Resilience
+
+The client includes automatic retry logic with exponential backoff:
+
+```python
+# Configure custom retry behavior
+client = MCPClient(
+    "http://localhost:8000/sse",
+    timeout=60.0,     # Longer timeout for slow servers
+    max_retries=5     # More retry attempts
+)
+
+# The client automatically retries failed operations
+# with exponential backoff: 1s, 2s, 4s, 8s, 16s
+```
+
+### Connection Health Monitoring
+
+```python
+# Check if endpoint is reachable before operations
+if await client.check_connection():
+    tools = await client.list_tools()
+else:
+    print("Server is not reachable")
+
+# Get detailed endpoint information
+info = client.get_endpoint_info()
+print(f"Connected to: {info['hostname']}:{info['port']}")
+```
+
 ## Requirements
 
-- Python 3.7+
-- `requests`
-- `sseclient-py`
-- `pydantic`
-- `openai` (for OpenAI integration)
-- `anthropic` (for Anthropic integration)
-- `ollama` (for Ollama integration)
+- Python 3.8+
+- `mcp>=0.1.0` (Model Context Protocol library)
+- `pydantic>=2.0.0` (Data validation)
+- `openai>=1.70.0` (for OpenAI integration)
+- `anthropic>=0.15.0` (for Anthropic integration)
+- `ollama>=0.1.7` (for Ollama integration)
 - `streamlit` (for the interactive test app)
+
+## Troubleshooting
+
+### Common Issues
+
+**"unhandled errors in a TaskGroup" Error:**
+This typically occurs with asyncio compatibility issues. The Streamlit app handles this automatically, but for custom implementations, ensure proper async context management.
+
+**Connection Timeouts:**
+- Increase the timeout parameter: `MCPClient(endpoint, timeout=60.0)`
+- Check if the MCP server is running and accessible
+- Verify the endpoint URL is correct
+
+**Import Errors:**
+- Ensure all dependencies are installed: `pip install -e .`
+- Check Python version compatibility (3.8+)
+
+**LLM Integration Issues:**
+- Verify API keys are set correctly
+- Check model names match supported versions
+- For Ollama, ensure the service is running locally
 
 ## Development
 
