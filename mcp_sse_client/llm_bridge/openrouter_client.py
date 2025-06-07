@@ -79,11 +79,12 @@ class OpenRouterClient:
         return headers
 
 
-def format_model_display(model: Dict[str, Any]) -> Dict[str, Any]:
+def format_model_display(model: Dict[str, Any], include_tool_indicator: bool = False) -> Dict[str, Any]:
     """Format model information for display in UI.
     
     Args:
         model: Model dictionary from OpenRouter API
+        include_tool_indicator: Whether to include tool capability indicator
         
     Returns:
         Formatted model information
@@ -93,6 +94,30 @@ def format_model_display(model: Dict[str, Any]) -> Dict[str, Any]:
     pricing = model.get("pricing", {})
     context_length = model.get("context_length", "Unknown")
     description = model.get("description", "")
+    
+    # Check tool capability if indicator requested
+    tool_indicator = ""
+    if include_tool_indicator:
+        # Import here to avoid circular imports
+        try:
+            # Check for tool support in model metadata
+            supports_tools = model.get("supports_tools", False)
+            supports_function_calling = model.get("supports_function_calling", False)
+            
+            # Fallback to pattern matching
+            if not (supports_tools or supports_function_calling):
+                model_lower = model_id.lower()
+                if any(pattern in model_lower for pattern in [
+                    "gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo",
+                    "claude-3", "claude-3.5", "gemini-1.5", "gemini-pro",
+                    "llama-3.1", "llama-3.2", "mistral-large", "mixtral"
+                ]):
+                    supports_tools = True
+            
+            if supports_tools or supports_function_calling:
+                tool_indicator = "🔧 "
+        except Exception:
+            pass
     
     # Format pricing (convert to per 1M tokens)
     try:
@@ -108,8 +133,8 @@ def format_model_display(model: Dict[str, Any]) -> Dict[str, Any]:
     else:
         context_str = "Unknown ctx"
     
-    # Create display string
-    display_name = f"{name} | {pricing_str} | {context_str}"
+    # Create display string with optional tool indicator
+    display_name = f"{tool_indicator}{name} | {pricing_str} | {context_str}"
     
     return {
         "display": display_name,
@@ -117,5 +142,6 @@ def format_model_display(model: Dict[str, Any]) -> Dict[str, Any]:
         "name": name,
         "description": description,
         "pricing": pricing,
-        "context_length": context_length
+        "context_length": context_length,
+        "supports_tools": supports_tools if include_tool_indicator else None
     }

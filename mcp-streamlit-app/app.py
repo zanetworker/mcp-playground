@@ -32,6 +32,14 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Load custom CSS
+def load_css():
+    with open("style.css") as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+# Apply custom styling
+load_css()
+
 # Initialize session state
 if "connected" not in st.session_state:
     st.session_state.connected = False
@@ -67,6 +75,8 @@ if "ollama_models" not in st.session_state:
     st.session_state.ollama_models = []
 if "chat_mode" not in st.session_state:
     st.session_state.chat_mode = "auto"  # auto, chat, tools
+if "show_tools_only" not in st.session_state:
+    st.session_state.show_tools_only = True  # Default to showing only tool-capable models
 
 # OpenRouter session state
 if "openrouter_site_url" not in st.session_state:
@@ -140,14 +150,78 @@ async def fetch_ollama_models(host=None):
         print(f"Error fetching Ollama models: {e}")
         return []
 
+# --- Tool Capability Detection ---
+def is_tool_capable_model(model_id: str, model_data: dict = None) -> bool:
+    """Determine if a model supports tool/function calling.
+    
+    Args:
+        model_id: The model identifier (e.g., 'openai/gpt-4')
+        model_data: Optional model metadata from OpenRouter API
+        
+    Returns:
+        bool: True if the model supports tools, False otherwise
+    """
+    # Check OpenRouter metadata first if available
+    if model_data:
+        # Check for explicit tool support flags
+        supports_tools = model_data.get("supports_tools", False)
+        supports_function_calling = model_data.get("supports_function_calling", False)
+        if supports_tools or supports_function_calling:
+            return True
+    
+    # Fallback to pattern matching for known tool-capable models
+    model_lower = model_id.lower()
+    
+    # OpenAI models with tool support
+    if any(pattern in model_lower for pattern in [
+        "gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"
+    ]):
+        # Exclude base models and instruct variants that typically don't support tools
+        if any(exclude in model_lower for exclude in ["base", "instruct"]):
+            return False
+        return True
+    
+    # Anthropic Claude models with tool support
+    if any(pattern in model_lower for pattern in [
+        "claude-3", "claude-3.5"
+    ]):
+        return True
+    
+    # Google Gemini models with tool support
+    if any(pattern in model_lower for pattern in [
+        "gemini-1.5", "gemini-pro"
+    ]):
+        # Exclude vision-only models
+        if "vision" in model_lower and "pro" not in model_lower:
+            return False
+        return True
+    
+    # Meta models with tool support
+    if any(pattern in model_lower for pattern in [
+        "llama-3.1", "llama-3.2"
+    ]):
+        # Only larger models typically support tools
+        if any(size in model_lower for size in ["70b", "405b"]):
+            return True
+    
+    # Mistral models with tool support
+    if any(pattern in model_lower for pattern in [
+        "mistral-large", "mistral-medium", "mixtral"
+    ]):
+        return True
+    
+    # Default to False for unknown models
+    return False
+
 # --- OpenRouter Helper Functions ---
-async def fetch_openrouter_models_by_provider(api_key, provider, limit=5):
+async def fetch_openrouter_models_by_provider(api_key, provider, limit=5, tools_only=False):
     """Fetch top N most popular models for a specific provider from OpenRouter.
     
     Args:
         api_key: OpenRouter API key
         provider: Provider name (e.g., 'openai', 'anthropic', 'google')
         limit: Maximum number of models to return
+        tools_only: If True, only return models that support tool calling
         
     Returns:
         List of formatted model dictionaries
@@ -159,12 +233,24 @@ async def fetch_openrouter_models_by_provider(api_key, provider, limit=5):
             site_name=st.session_state.openrouter_site_name
         )
         
-        models = await client.fetch_top_models_by_provider(provider, limit)
+        # Fetch more models initially if filtering for tools
+        fetch_limit = limit * 3 if tools_only else limit
+        models = await client.fetch_top_models_by_provider(provider, fetch_limit)
+        
+        # Filter for tool-capable models if requested
+        if tools_only:
+            tool_capable_models = []
+            for model in models:
+                if is_tool_capable_model(model["id"], model):
+                    tool_capable_models.append(model)
+                    if len(tool_capable_models) >= limit:
+                        break
+            models = tool_capable_models
         
         # Format models for display
         formatted_models = []
         for model in models:
-            formatted = format_model_display(model)
+            formatted = format_model_display(model, include_tool_indicator=True)
             formatted_models.append(formatted)
         
         return formatted_models
@@ -172,7 +258,7 @@ async def fetch_openrouter_models_by_provider(api_key, provider, limit=5):
         print(f"Error fetching {provider} models from OpenRouter: {e}")
         return []
 
-def sync_fetch_openrouter_models(api_key, provider, limit=5):
+def sync_fetch_openrouter_models(api_key, provider, limit=5, tools_only=False):
     """Synchronous wrapper for OpenRouter model fetching."""
     try:
         # Handle event loop properly
@@ -183,12 +269,12 @@ def sync_fetch_openrouter_models(api_key, provider, limit=5):
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(
                     asyncio.run,
-                    fetch_openrouter_models_by_provider(api_key, provider, limit)
+                    fetch_openrouter_models_by_provider(api_key, provider, limit, tools_only)
                 )
                 return future.result(timeout=30)
         except RuntimeError:
             # No event loop running, safe to use asyncio.run()
-            return asyncio.run(fetch_openrouter_models_by_provider(api_key, provider, limit))
+            return asyncio.run(fetch_openrouter_models_by_provider(api_key, provider, limit, tools_only))
     except Exception as e:
         print(f"Error in sync fetch: {e}")
         return []
@@ -331,6 +417,10 @@ def connect_to_server():
                     st.success(f"✅ Using Ollama model: {st.session_state.ollama_model}")
             if tool_count > 0:
                 st.success(f"✅ Found {tool_count} available tools")
+                # Show tool names for debugging
+                if st.session_state.tools:
+                    tool_names = [tool.name for tool in st.session_state.tools]
+                    st.info(f"🔧 Available tools: {', '.join(tool_names)}")
             else:
                 st.warning("⚠️ No tools found on the server")
         else:
@@ -360,9 +450,13 @@ def extract_content_from_llm_response(llm_response):
         str: Clean text content extracted from the response (never None)
     """
     try:
+        print(f"DEBUG extract_content_from_llm_response: Input type: {type(llm_response)}")
+        print(f"DEBUG extract_content_from_llm_response: Input value: {llm_response}")
+        
         # OpenAI ChatCompletion object
         if hasattr(llm_response, 'choices') and llm_response.choices:
             content = llm_response.choices[0].message.content
+            print(f"DEBUG: OpenAI content extracted: {content}")
             return content if content is not None else "No content received from OpenAI"
         
         # Anthropic Message object
@@ -370,36 +464,67 @@ def extract_content_from_llm_response(llm_response):
             for content in llm_response.content:
                 if hasattr(content, 'type') and content.type == "text":
                     text = content.text
+                    print(f"DEBUG: Anthropic text content extracted: {text}")
                     return text if text is not None else "No text content from Anthropic"
             # Fallback: return first content item as string
             first_content = str(llm_response.content[0])
+            print(f"DEBUG: Anthropic fallback content: {first_content}")
             return first_content if first_content else "Empty content from Anthropic"
         
-        # Ollama dict response
+        # Dict response (could be from any provider)
         elif isinstance(llm_response, dict):
+            print(f"DEBUG: Dict response keys: {list(llm_response.keys())}")
+            
+            # Check for direct content key
+            if 'content' in llm_response:
+                content = llm_response['content']
+                print(f"DEBUG: Direct content key found: {content}")
+                return content if content else "Empty content in dict"
+            
+            # Check for message.content (Ollama format)
             if 'message' in llm_response:
                 message = llm_response['message']
                 if isinstance(message, dict) and 'content' in message:
                     content = message['content']
+                    print(f"DEBUG: Ollama message content: {content}")
                     return content if content is not None else "No content in Ollama message"
-            # Fallback for other dict formats
-            content = llm_response.get('content', str(llm_response))
-            return content if content else "Empty Ollama response"
+            
+            # Check for response key (some providers use this)
+            if 'response' in llm_response:
+                response = llm_response['response']
+                print(f"DEBUG: Response key found: {response}")
+                return response if response else "Empty response in dict"
+            
+            # Check for text key
+            if 'text' in llm_response:
+                text = llm_response['text']
+                print(f"DEBUG: Text key found: {text}")
+                return text if text else "Empty text in dict"
+            
+            # Fallback: convert entire dict to string
+            fallback = str(llm_response)
+            print(f"DEBUG: Dict fallback: {fallback}")
+            return fallback if fallback else "Empty dict response"
         
         # String response (already clean)
         elif isinstance(llm_response, str):
+            print(f"DEBUG: String response: {llm_response}")
             return llm_response if llm_response else "Empty string response"
         
         # None response
         elif llm_response is None:
+            print("DEBUG: None response")
             return "No response received"
         
         # Fallback: convert to string
         fallback = str(llm_response)
+        print(f"DEBUG: Final fallback: {fallback}")
         return fallback if fallback else "Empty response object"
         
     except Exception as e:
-        return f"Error extracting content: {e}"
+        error_msg = f"Error extracting content: {e}"
+        print(f"DEBUG: Exception in extract_content_from_llm_response: {error_msg}")
+        return error_msg
 
 def format_tool_result(tool_result_content):
     """Format tool result content for better readability.
@@ -521,6 +646,12 @@ async def process_user_message_async(user_input):
             return await chat_with_llm_directly(user_input)
         
         try:
+            # Debug: Check if we have tools available (but don't show misleading warnings)
+            if hasattr(st.session_state.llm_bridge, 'tools') and st.session_state.llm_bridge.tools:
+                tools_count = len(st.session_state.llm_bridge.tools)
+                # Only show this info in debug mode, not always
+                # st.info(f"🔧 Auto mode: {tools_count} MCP tools available for LLM to use")
+            
             result = await st.session_state.llm_bridge.process_query(user_input, st.session_state.messages)
             
             # Format the response nicely
@@ -532,27 +663,35 @@ async def process_user_message_async(user_input):
                 # Extract the main message content using unified parser
                 content = extract_content_from_llm_response(llm_response)
                 
+                # Debug logging to understand what we're getting
+                print(f"DEBUG: LLM Response Type: {type(llm_response)}")
+                print(f"DEBUG: LLM Response Keys (if dict): {list(llm_response.keys()) if isinstance(llm_response, dict) else 'Not a dict'}")
+                print(f"DEBUG: LLM Response Content: {llm_response}")
+                print(f"DEBUG: Extracted Content: {content}")
+                print(f"DEBUG: Content starts with 'No content': {content.startswith('No content received from') if content else 'Content is None'}")
+                
                 response_parts = []
                 
-                # Only add content if it's not a generic "no content" message and we have a tool result
-                if tool_call and tool_result:
-                    # If we have a tool result, prioritize that over generic "no content" messages
-                    if not content.startswith("No content received from"):
-                        response_parts.append(content)
-                    
-                    tool_name = tool_call.get('name', 'Unknown')
-                    if tool_result.error_code == 0:
-                        response_parts.append(f"🔧 **Tool Used:** {tool_name}")
-                        formatted_result = format_tool_result(tool_result.content)
-                        response_parts.append(f"**Result:**\n{formatted_result}")
-                    else:
-                        response_parts.append(f"❌ **Tool Error:** {tool_name} failed")
-                        response_parts.append(f"**Error:** {tool_result.content}")
-                else:
-                    # No tool call, just return the content
-                    response_parts.append(content)
+                # Store the response components for structured display
+                response_data = {
+                    "llm_response": content,
+                    "tool_call": tool_call,
+                    "tool_result": tool_result,
+                    "has_tools": hasattr(st.session_state.llm_bridge, 'tools') and st.session_state.llm_bridge.tools
+                }
                 
-                return "\n".join(response_parts)
+                # Store in session state for the UI to access
+                st.session_state.last_response_data = response_data
+                
+                # Return the actual LLM content, with better fallback handling
+                if content and not content.startswith("No content received from") and not content.startswith("Error extracting content"):
+                    return content
+                else:
+                    # If we have tool results but no proper LLM response, create a meaningful fallback
+                    if tool_call and tool_result and tool_result.error_code == 0:
+                        return f"I successfully executed the {tool_call.get('name', 'requested')} tool and processed the results. Please check the details below."
+                    else:
+                        return "I processed your request using the available tools."
             else:
                 return extract_content_from_llm_response(result)
                 
@@ -578,14 +717,35 @@ def process_user_message(user_input):
     except Exception as e:
         return f"Error processing message: {e}"
 
-# Title
-st.title("MCP Tool Tester")
+# Modern Header
+st.markdown("""
+<div style="text-align: center; margin-bottom: 2rem;">
+    <h1 class="gradient-text" style="font-size: 3.5rem; font-weight: 700; margin-bottom: 0.5rem; letter-spacing: -0.02em;">
+        🛠️ MCP Tool Tester
+    </h1>
+    <p style="color: var(--text-secondary); font-size: 1.2rem; margin: 0;">
+        Modern AI Tool Integration Platform
+    </p>
+    <div style="width: 100px; height: 3px; background: var(--accent-gradient); margin: 1rem auto; border-radius: 2px;"></div>
+</div>
+""", unsafe_allow_html=True)
 
 # Sidebar for configuration
 with st.sidebar:
-    st.header("Configuration")
+    st.markdown("""
+    <div style="text-align: center; margin-bottom: 2rem;">
+        <h2 class="gradient-text" style="font-size: 1.8rem; margin-bottom: 0.5rem;">⚙️ Configuration</h2>
+        <div style="width: 60px; height: 2px; background: var(--accent-gradient); margin: 0.5rem auto; border-radius: 1px;"></div>
+    </div>
+    """, unsafe_allow_html=True)
     
-    st.subheader("Server Connection")
+    st.markdown("""
+    <div style="margin: 1.5rem 0 1rem 0;">
+        <h3 style="color: var(--text-primary); font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+            📡 Server Connection
+        </h3>
+    </div>
+    """, unsafe_allow_html=True)
     
     # MCP Endpoint
     mcp_endpoint = st.text_input(
@@ -595,7 +755,13 @@ with st.sidebar:
     )
     st.session_state.mcp_endpoint = mcp_endpoint
 
-    st.subheader("LLM Configuration")
+    st.markdown("""
+    <div style="margin: 1.5rem 0 1rem 0;">
+        <h3 style="color: var(--text-primary); font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+            🤖 LLM Configuration
+        </h3>
+    </div>
+    """, unsafe_allow_html=True)
     
     # LLM Provider
     llm_provider = st.selectbox(
@@ -607,7 +773,13 @@ with st.sidebar:
     
     # Provider specific settings
     if llm_provider in ["openai", "anthropic", "google"]:
-        st.subheader(f"{llm_provider.title()} Models (via OpenRouter)")
+        st.markdown(f"""
+        <div style="margin: 1.5rem 0 1rem 0;">
+            <h3 style="color: var(--text-primary); font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                🎯 {llm_provider.title()} Models (via OpenRouter)
+            </h3>
+        </div>
+        """, unsafe_allow_html=True)
         
         # OpenRouter API Key
         api_key = st.text_input(
@@ -634,16 +806,34 @@ with st.sidebar:
             )
             st.session_state.openrouter_site_name = site_name
         
+        # Model filtering toggle
+        show_tools_only = st.checkbox(
+            "🔧 Show only tool-capable models",
+            value=st.session_state.show_tools_only,
+            help="Filter to show only models that support function/tool calling for MCP integration"
+        )
+        st.session_state.show_tools_only = show_tools_only
+        
         # Refresh models button
-        if st.button(f"Refresh Top {llm_provider.title()} Models", key=f"refresh_{llm_provider}"):
+        button_text = f"Refresh Top {llm_provider.title()} Models"
+        if show_tools_only:
+            button_text += " (Tool-Capable Only)"
+        
+        if st.button(button_text, key=f"refresh_{llm_provider}"):
             if api_key:
-                with st.spinner(f"Fetching top 5 {llm_provider} models from OpenRouter..."):
-                    models = sync_fetch_openrouter_models(api_key, llm_provider, 5)
+                spinner_text = f"Fetching top 5 {llm_provider} models from OpenRouter..."
+                if show_tools_only:
+                    spinner_text = f"Fetching tool-capable {llm_provider} models from OpenRouter..."
+                
+                with st.spinner(spinner_text):
+                    models = sync_fetch_openrouter_models(api_key, llm_provider, 5, show_tools_only)
                     st.session_state[f"{llm_provider}_openrouter_models"] = models
                     if models:
-                        st.success(f"Found {len(models)} popular {llm_provider} models")
+                        model_type = "tool-capable " if show_tools_only else "popular "
+                        st.success(f"Found {len(models)} {model_type}{llm_provider} models")
                     else:
-                        st.warning(f"No {llm_provider} models found")
+                        model_type = "tool-capable " if show_tools_only else ""
+                        st.warning(f"No {model_type}{llm_provider} models found")
             else:
                 st.error("Please enter your OpenRouter API key first")
         
@@ -750,7 +940,13 @@ with st.sidebar:
             )
             st.session_state.ollama_model = ollama_model
 
-    st.subheader("Chat Mode")
+    st.markdown("""
+    <div style="margin: 1.5rem 0 1rem 0;">
+        <h3 style="color: var(--text-primary); font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+            💬 Chat Mode
+        </h3>
+    </div>
+    """, unsafe_allow_html=True)
     
     # Chat mode selection
     chat_mode = st.selectbox(
@@ -769,9 +965,16 @@ with st.sidebar:
     elif chat_mode == "tools":
         st.caption("🔧 Always attempt to use MCP tools")
 
-    st.subheader("Connection Control")
+    st.markdown("""
+    <div style="margin: 1.5rem 0 1rem 0;">
+        <h3 style="color: var(--text-primary); font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+            🔌 Connection Control
+        </h3>
+    </div>
+    """, unsafe_allow_html=True)
     
-    col1, col2 = st.columns(2)
+    # Compact button layout with minimal spacing
+    col1, col2 = st.columns([1, 1])
     with col1:
         if st.button("Connect", help="Connect to the specified server and LLM provider."):
             with st.spinner("Connecting..."):
@@ -780,27 +983,59 @@ with st.sidebar:
         if st.button("Disconnect", disabled=not st.session_state.connected):
             disconnect_from_server()
     
-    # Status
-    st.markdown(
-        f"**Status:** {'🟢 Connected' if st.session_state.connected else '🔴 Not connected'}"
-    )
+    # Compact status display with modern styling
+    status_color = "var(--success)" if st.session_state.connected else "var(--error)"
+    status_icon = "🟢" if st.session_state.connected else "🔴"
+    status_text = "Connected" if st.session_state.connected else "Not Connected"
+    
+    # Get model info for display
     if st.session_state.connected:
-        st.caption(f"Server: {st.session_state.mcp_endpoint}")
-        st.caption(f"LLM: {st.session_state.llm_provider}")
+        if st.session_state.llm_provider in ['openai', 'anthropic', 'google']:
+            model_raw = st.session_state.get(f'{st.session_state.llm_provider}_openrouter_model')
+            model_display = model_raw.split('/')[-1] if model_raw and '/' in model_raw else (model_raw or 'Not selected')
+        else:
+            model_display = st.session_state.ollama_model
+    else:
+        model_display = "Not connected"
+    
+    # Build the status HTML properly
+    status_html = f"""
+    <div style="background: var(--secondary-bg); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-lg); margin: var(--space-md) 0;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-sm);">
+            <div style="display: flex; align-items: center; gap: var(--space-sm);">
+                <span style="font-size: 1.2rem;">{status_icon}</span>
+                <span style="font-weight: 600; color: {status_color};">{status_text}</span>
+            </div>"""
+    
+    if st.session_state.connected:
+        status_html += f'<div style="color: var(--text-secondary); font-size: 0.8rem;">🎯 {model_display}</div>'
+    
+    status_html += "</div>"
+    
+    if st.session_state.connected:
+        status_html += f"""
+        <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.4; display: grid; grid-template-columns: 1fr; gap: 0.25rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span>📡</span>
+                <span style="font-size: 0.8rem; word-break: break-all;">{st.session_state.mcp_endpoint}</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span>🤖</span>
+                <span>{st.session_state.llm_provider.title()}</span>
+            </div>"""
         
-        if st.session_state.llm_provider in ["openai", "anthropic", "google"]:
-            selected_model_key = f"{st.session_state.llm_provider}_openrouter_model"
-            selected_model = st.session_state.get(selected_model_key)
-            if selected_model:
-                # Extract model name from full ID (e.g., "openai/gpt-4o" -> "gpt-4o")
-                model_name = selected_model.split('/')[-1] if '/' in selected_model else selected_model
-                st.caption(f"Model: {model_name} (via OpenRouter)")
-            else:
-                st.caption(f"Model: Not selected")
-        elif st.session_state.llm_provider == "ollama":
-            st.caption(f"Model: {st.session_state.ollama_model}")
-            if st.session_state.ollama_host:
-                st.caption(f"Host: {st.session_state.ollama_host}")
+        if st.session_state.llm_provider == "ollama" and st.session_state.ollama_host:
+            status_html += f"""
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span>🌐</span>
+                <span>{st.session_state.ollama_host}</span>
+            </div>"""
+        
+        status_html += "</div>"
+    
+    status_html += "</div>"
+    
+    st.markdown(status_html, unsafe_allow_html=True)
     
     # Show connection error if any
     if st.session_state.connection_error:
@@ -808,7 +1043,13 @@ with st.sidebar:
     
     # Tools
     if st.session_state.connected and st.session_state.tools:
-        st.header("Available Tools")
+        st.markdown("""
+        <div style="margin: 2rem 0 1rem 0;">
+            <h3 style="color: var(--text-primary); font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                🛠️ Available Tools
+            </h3>
+        </div>
+        """, unsafe_allow_html=True)
         for tool in st.session_state.tools:
             with st.expander(tool.name):
                 st.write(tool.description)
@@ -823,11 +1064,17 @@ st.markdown("---")
 
 if not st.session_state.connected and st.session_state.chat_mode != "chat":
     st.markdown("""
-    <div style="text-align: center; padding: 2rem; background-color: #1e1e2e; border-radius: 10px; margin: 2rem 0;">
-        <h2 style="color: #ffffff; font-weight: bold;">Welcome to MCP Tool Tester</h2>
-        <p style="font-size: 1.2rem; color: #ffffff;">Please connect to an MCP server using the sidebar to get started.</p>
-        <p style="color: #ffffff;">👈 Configure your connection settings in the sidebar</p>
-        <p style="color: #ffffff;">Or switch to "chat" mode to talk directly with the LLM</p>
+    <div class="welcome-card fade-in">
+        <h2>✨ Welcome to MCP Tool Tester</h2>
+        <p>Connect to an MCP server to unlock powerful AI tool integration, or switch to chat mode for direct LLM conversation.</p>
+        <div style="margin-top: 1.5rem; display: flex; justify-content: center; gap: 1rem; flex-wrap: wrap;">
+            <div style="background: rgba(99, 102, 241, 0.1); border: 1px solid var(--accent-primary); border-radius: 0.5rem; padding: 0.75rem 1rem; color: var(--accent-primary);">
+                👈 Configure Connection
+            </div>
+            <div style="background: rgba(139, 92, 246, 0.1); border: 1px solid var(--accent-secondary); border-radius: 0.5rem; padding: 0.75rem 1rem; color: var(--accent-secondary);">
+                💬 Try Chat Mode
+            </div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -850,16 +1097,31 @@ else:
     # Chat interface
     if not st.session_state.messages:
         mode_descriptions = {
-            "auto": "The LLM will automatically decide when to use MCP tools based on your questions.",
-            "chat": "Direct conversation with the LLM without using MCP tools.",
-            "tools": "The LLM will always attempt to use MCP tools to answer your questions."
+            "auto": "🤖 The LLM will automatically decide when to use MCP tools based on your questions.",
+            "chat": "💬 Direct conversation with the LLM without using MCP tools.",
+            "tools": "🔧 The LLM will always attempt to use MCP tools to answer your questions."
+        }
+        
+        mode_icons = {
+            "auto": "🤖",
+            "chat": "💬",
+            "tools": "🔧"
         }
         
         st.markdown(f"""
-        <div style="text-align: center; padding: 1rem; background-color: #1e1e2e; border-radius: 10px; margin-bottom: 1rem;">
-            <h3 style="color: #ffffff; font-weight: bold;">Ready to chat!</h3>
-            <p style="color: #ffffff;">Current mode: <strong>{st.session_state.chat_mode.title()}</strong></p>
-            <p style="color: #ffffff; font-size: 0.9rem;">{mode_descriptions[st.session_state.chat_mode]}</p>
+        <div class="welcome-card fade-in" style="margin-bottom: 2rem;">
+            <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-bottom: 1rem;">
+                <span style="font-size: 1.5rem;">{mode_icons[st.session_state.chat_mode]}</span>
+                <h3 class="gradient-text" style="margin: 0;">Ready to Chat!</h3>
+            </div>
+            <div style="background: var(--tertiary-bg); border: 1px solid var(--accent-primary); border-radius: var(--radius-lg); padding: var(--space-lg); margin-top: var(--space-lg);">
+                <div style="color: var(--accent-primary); font-weight: 600; margin-bottom: var(--space-sm);">
+                    Current Mode: {st.session_state.chat_mode.title()}
+                </div>
+                <div style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.5;">
+                    {mode_descriptions[st.session_state.chat_mode]}
+                </div>
+            </div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -896,6 +1158,37 @@ else:
         with st.chat_message("assistant"):
             with st.spinner("Processing..."):
                 result = process_user_message(prompt)
+                
+                # Display the LLM response
                 st.write(result)
-                # Add assistant response to chat
+                
+                # Check if we have structured response data from the last processing
+                if hasattr(st.session_state, 'last_response_data') and st.session_state.last_response_data:
+                    response_data = st.session_state.last_response_data
+                    tool_call = response_data.get("tool_call")
+                    tool_result = response_data.get("tool_result")
+                    has_tools = response_data.get("has_tools", False)
+                    
+                    # Display tool usage information
+                    if tool_call and tool_result:
+                        tool_name = tool_call.get('name', 'Unknown')
+                        if tool_result.error_code == 0:
+                            # Show success message
+                            st.success(f"✅ Auto mode: LLM successfully used MCP tool '{tool_name}' and processed the results")
+                            
+                            # Show raw tool data in expander
+                            with st.expander("🔧 View Raw Tool Data", expanded=False):
+                                formatted_result = format_tool_result(tool_result.content)
+                                st.code(formatted_result, language="json")
+                        else:
+                            st.error(f"❌ Auto mode: MCP tool '{tool_name}' failed")
+                            st.error(f"**Error:** {tool_result.content}")
+                    else:
+                        if has_tools:
+                            st.info("ℹ️ Auto mode: LLM chose not to use any MCP tools for this query")
+                    
+                    # Clear the response data
+                    st.session_state.last_response_data = None
+                
+                # Add assistant response to chat history
                 st.session_state.messages.append({"role": "assistant", "content": result})

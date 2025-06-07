@@ -77,6 +77,26 @@ class OllamaBridge(LLMBridge):
             print(f"An unexpected error occurred with Ollama: {e}")
             raise e
 
+    async def submit_query_without_tools(self, messages: List[Dict[str, Any]]) -> Any:
+        """Submit a query to Ollama without tools for final processing.
+        
+        Args:
+            messages: Complete conversation including tool results
+            
+        Returns:
+            Ollama API response
+        """
+        try:
+            response = await self.llm_client.chat(
+                model=self.model,
+                messages=messages
+                # Note: No tools parameter - this is for final processing
+            )
+            return response
+        except Exception as e:
+            print(f"An unexpected error occurred with Ollama: {e}")
+            raise e
+
     async def parse_tool_call(self, llm_response: Any) -> Optional[Dict[str, Any]]:
         """Parse the Ollama response to extract tool calls.
         

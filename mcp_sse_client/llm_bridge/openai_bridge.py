@@ -60,6 +60,24 @@ class OpenAIBridge(LLMBridge):
         
         return response
     
+    async def submit_query_without_tools(self, messages: List[Dict[str, Any]]) -> Any:
+        """Submit a query to OpenAI without tools for final processing.
+        
+        Args:
+            messages: Complete conversation including tool results
+            
+        Returns:
+            OpenAI API response
+        """
+        # Make the API call without tools
+        response = self.llm_client.chat.completions.create(
+            model=self.model,
+            messages=messages
+            # Note: No tools parameter - this is for final processing
+        )
+        
+        return response
+    
     async def parse_tool_call(self, llm_response: Any) -> Optional[Dict[str, Any]]:
         """Parse the OpenAI response to extract tool calls.
         

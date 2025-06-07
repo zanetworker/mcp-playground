@@ -65,6 +65,18 @@ class LLMBridge(abc.ABC):
         """
         pass
     
+    @abc.abstractmethod
+    async def submit_query_without_tools(self, messages: List[Dict[str, Any]]) -> Any:
+        """Submit a query to the LLM without tools for final processing.
+        
+        Args:
+            messages: Complete conversation including tool results
+            
+        Returns:
+            LLM response
+        """
+        pass
+    
     async def execute_tool(self, tool_name: str, kwargs: Dict[str, Any]) -> ToolInvocationResult:
         """Execute a tool with the given parameters.
         
@@ -86,6 +98,7 @@ class LLMBridge(abc.ABC):
         3. Submit query to LLM
         4. Parse tool calls from LLM response
         5. Execute tool if needed
+        6. Send tool result back to LLM for processing
         
         Args:
             query: User query string
@@ -119,5 +132,56 @@ class LLMBridge(abc.ABC):
             kwargs = tool_call.get("parameters", {})
             tool_result = await self.execute_tool(tool_name, kwargs)
             result["tool_result"] = tool_result
+            
+            # 6. Send tool result back to LLM for processing
+            if tool_result.error_code == 0:  # Only if tool succeeded
+                final_response = await self.process_tool_result(
+                    query, tool_call, tool_result, conversation_history
+                )
+                result["llm_response"] = final_response
         
         return result
+    
+    async def process_tool_result(self, original_query: str, tool_call: Dict[str, Any],
+                                tool_result: Any, conversation_history: Optional[List[Dict[str, str]]] = None) -> Any:
+        """Send tool result back to LLM for processing and response generation.
+        
+        Args:
+            original_query: The user's original question
+            tool_call: The tool call that was executed
+            tool_result: The result from the tool execution
+            conversation_history: Previous conversation context
+            
+        Returns:
+            LLM response after processing the tool result
+        """
+        import json
+        
+        # Build conversation with tool result
+        messages = conversation_history.copy() if conversation_history else []
+        messages.append({"role": "user", "content": original_query})
+        
+        # Add assistant's tool call
+        messages.append({
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{
+                "id": tool_call.get("id", "call_1"),
+                "type": "function",
+                "function": {
+                    "name": tool_call.get("name"),
+                    "arguments": json.dumps(tool_call.get("parameters", {}))
+                }
+            }]
+        })
+        
+        # Add tool result
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tool_call.get("id", "call_1"),
+            "content": str(tool_result.content)
+        })
+        
+        # Get LLM's final response (without tools this time)
+        final_response = await self.submit_query_without_tools(messages)
+        return final_response

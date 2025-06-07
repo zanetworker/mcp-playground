@@ -84,6 +84,28 @@ class OpenRouterBridge(LLMBridge):
         
         return response
     
+    async def submit_query_without_tools(self, messages: List[Dict[str, Any]]) -> Any:
+        """Submit a query to OpenRouter without tools for final processing.
+        
+        Args:
+            messages: Complete conversation including tool results
+            
+        Returns:
+            OpenRouter API response (OpenAI-compatible format)
+        """
+        # Prepare extra headers for OpenRouter
+        extra_headers = self.openrouter_client.get_extra_headers()
+        
+        # Make the API call without tools
+        response = self.llm_client.chat.completions.create(
+            extra_headers=extra_headers,
+            model=self.model,
+            messages=messages
+            # Note: No tools parameter - this is for final processing
+        )
+        
+        return response
+    
     async def parse_tool_call(self, llm_response: Any) -> Optional[Dict[str, Any]]:
         """Parse the OpenRouter response to extract tool calls.
         

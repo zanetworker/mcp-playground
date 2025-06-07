@@ -60,6 +60,25 @@ class AnthropicBridge(LLMBridge):
         
         return response
     
+    async def submit_query_without_tools(self, messages: List[Dict[str, Any]]) -> Any:
+        """Submit a query to Anthropic without tools for final processing.
+        
+        Args:
+            messages: Complete conversation including tool results
+            
+        Returns:
+            Anthropic API response
+        """
+        # Make the API call without tools
+        response = self.llm_client.messages.create(
+            model=self.model,
+            max_tokens=4096,
+            messages=messages
+            # Note: No tools parameter - this is for final processing
+        )
+        
+        return response
+    
     async def parse_tool_call(self, llm_response: Any) -> Optional[Dict[str, Any]]:
         """Parse the Anthropic response to extract tool calls.
         
