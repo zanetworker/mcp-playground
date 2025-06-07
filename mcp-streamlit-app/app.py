@@ -918,6 +918,10 @@ with st.sidebar:
         value=st.session_state.mcp_endpoint,
         help="Enter the full URL for the MCP SSE server."
     )
+    # Auto-disconnect if endpoint changes while connected
+    if st.session_state.mcp_endpoint != mcp_endpoint and st.session_state.connected:
+        disconnect_from_server()
+        st.info("🔄 Disconnected due to endpoint change. Click Connect to reconnect.")
     st.session_state.mcp_endpoint = mcp_endpoint
 
     st.markdown("""
@@ -934,6 +938,10 @@ with st.sidebar:
         ["openai", "anthropic", "google", "ollama"],
         index=["openai", "anthropic", "google", "ollama"].index(st.session_state.llm_provider) if st.session_state.llm_provider in ["openai", "anthropic", "google", "ollama"] else 0
     )
+    # Auto-disconnect if provider changes while connected
+    if st.session_state.llm_provider != llm_provider and st.session_state.connected:
+        disconnect_from_server()
+        st.info("🔄 Disconnected due to provider change. Click Connect to reconnect.")
     st.session_state.llm_provider = llm_provider
     
     # Handle auto-refresh on startup and provider changes
@@ -1092,15 +1100,22 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     
-    # Compact button layout with minimal spacing
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        if st.button("Connect", help="Connect to the specified server and LLM provider."):
-            with st.spinner("Connecting..."):
-                connect_to_server()
-    with col2:
-        if st.button("Disconnect", disabled=not st.session_state.connected):
+    # Single dynamic connection button
+    if st.session_state.connected:
+        button_text = "🟢 Connected"
+        button_help = "Currently connected. Click to reconnect with current settings."
+        button_type = "secondary"
+    else:
+        button_text = "🔵 Connect"
+        button_help = "Connect to the specified server and LLM provider."
+        button_type = "primary"
+    
+    if st.button(button_text, help=button_help, use_container_width=True, type=button_type):
+        if st.session_state.connected:
+            # Disconnect first, then reconnect
             disconnect_from_server()
+        with st.spinner("Connecting..."):
+            connect_to_server()
     
     # Compact status display with modern styling
     status_color = "var(--success)" if st.session_state.connected else "var(--error)"
@@ -1117,37 +1132,37 @@ with st.sidebar:
     else:
         model_display = "Not connected"
     
-    # Build the status HTML properly
+    # Build the status HTML with improved responsive design
     status_html = f"""
-    <div style="background: var(--secondary-bg); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-lg); margin: var(--space-md) 0;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-sm);">
-            <div style="display: flex; align-items: center; gap: var(--space-sm);">
-                <span style="font-size: 1.2rem;">{status_icon}</span>
-                <span style="font-weight: 600; color: {status_color};">{status_text}</span>
+    <div style="background: var(--secondary-bg); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-md); margin: var(--space-md) 0; width: 100%; box-sizing: border-box;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-sm); flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: var(--space-sm); min-width: 0; flex: 1;">
+                <span style="font-size: 1.1rem;">{status_icon}</span>
+                <span style="font-weight: 600; color: {status_color}; white-space: nowrap;">{status_text}</span>
             </div>"""
     
     if st.session_state.connected:
-        status_html += f'<div style="color: var(--text-secondary); font-size: 0.8rem;">🎯 {model_display}</div>'
+        status_html += f'<div style="color: var(--text-secondary); font-size: 0.75rem; white-space: nowrap;">🎯 {model_display}</div>'
     
     status_html += "</div>"
     
     if st.session_state.connected:
         status_html += f"""
-        <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.4; display: grid; grid-template-columns: 1fr; gap: 0.25rem;">
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span>📡</span>
-                <span style="font-size: 0.8rem; word-break: break-all;">{st.session_state.mcp_endpoint}</span>
+        <div style="color: var(--text-secondary); font-size: 0.8rem; line-height: 1.3; display: flex; flex-direction: column; gap: 0.2rem;">
+            <div style="display: flex; align-items: flex-start; gap: 0.4rem; min-width: 0;">
+                <span style="flex-shrink: 0; margin-top: 0.1rem;">📡</span>
+                <span style="font-size: 0.75rem; word-break: break-all; overflow-wrap: break-word; min-width: 0; flex: 1;">{st.session_state.mcp_endpoint}</span>
             </div>
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span>🤖</span>
-                <span>{st.session_state.llm_provider.title()}</span>
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <span style="flex-shrink: 0;">🤖</span>
+                <span style="font-size: 0.75rem;">{st.session_state.llm_provider.title()}</span>
             </div>"""
         
         if st.session_state.llm_provider == "ollama" and st.session_state.ollama_host:
             status_html += f"""
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span>🌐</span>
-                <span>{st.session_state.ollama_host}</span>
+            <div style="display: flex; align-items: flex-start; gap: 0.4rem; min-width: 0;">
+                <span style="flex-shrink: 0; margin-top: 0.1rem;">🌐</span>
+                <span style="font-size: 0.75rem; word-break: break-all; overflow-wrap: break-word; min-width: 0; flex: 1;">{st.session_state.ollama_host}</span>
             </div>"""
         
         status_html += "</div>"

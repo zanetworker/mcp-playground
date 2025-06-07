@@ -134,6 +134,7 @@ header {visibility: hidden;}
   padding: var(--space-sm) var(--space-lg);
   transition: all var(--transition-fast);
   box-shadow: var(--shadow-md);
+  width: 100%;
 }
 
 .stButton > button:hover {
@@ -143,6 +144,40 @@ header {visibility: hidden;}
 
 .stButton > button:active {
   transform: translateY(0);
+}
+
+/* Connection Button States */
+.stButton > button[data-testid*="baseButton-secondary"] {
+  background: var(--success);
+  color: white;
+}
+
+.stButton > button[data-testid*="baseButton-secondary"]:hover {
+  background: #0ea574;
+  transform: translateY(-1px);
+}
+
+.stButton > button[data-testid*="baseButton-primary"] {
+  background: var(--accent-gradient);
+}
+
+/* Sidebar specific improvements */
+.css-1d391kg {
+  background: var(--secondary-bg);
+  border-right: 1px solid var(--border);
+  padding: var(--space-md);
+}
+
+/* Improved sidebar text inputs and selects */
+.css-1d391kg .stTextInput > div > div > input,
+.css-1d391kg .stSelectbox > div > div {
+  font-size: 0.9rem;
+  padding: var(--space-sm);
+}
+
+/* Status container responsive improvements */
+.css-1d391kg .stMarkdown {
+  margin-bottom: var(--space-sm);
 }
 
 /* Success/Error Messages */
