@@ -40,12 +40,13 @@ class LLMBridge(abc.ABC):
         pass
     
     @abc.abstractmethod
-    async def submit_query(self, query: str, formatted_tools: Any) -> Dict[str, Any]:
+    async def submit_query(self, query: str, formatted_tools: Any, conversation_history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         """Submit a query to the LLM with the formatted tools.
         
         Args:
             query: User query string
             formatted_tools: Tools in the LLM-specific format
+            conversation_history: Previous conversation messages (optional)
             
         Returns:
             LLM response
@@ -76,7 +77,7 @@ class LLMBridge(abc.ABC):
         """
         return await self.mcp_client.invoke_tool(tool_name, kwargs)
     
-    async def process_query(self, query: str) -> Dict[str, Any]:
+    async def process_query(self, query: str, conversation_history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         """Process a user query through the LLM and execute any tool calls.
         
         This method handles the full flow:
@@ -88,6 +89,7 @@ class LLMBridge(abc.ABC):
         
         Args:
             query: User query string
+            conversation_history: Previous conversation messages (optional)
             
         Returns:
             Dictionary containing the LLM response, tool call, and tool result
@@ -100,7 +102,7 @@ class LLMBridge(abc.ABC):
         formatted_tools = await self.format_tools(self.tools)
         
         # 3. Submit query to LLM
-        llm_response = await self.submit_query(query, formatted_tools)
+        llm_response = await self.submit_query(query, formatted_tools, conversation_history)
         
         # 4. Parse tool calls from LLM response
         tool_call = await self.parse_tool_call(llm_response)

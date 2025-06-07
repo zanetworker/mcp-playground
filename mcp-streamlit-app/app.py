@@ -16,6 +16,8 @@ from mcp_sse_client.client import MCPClient, MCPConnectionError, MCPTimeoutError
 from mcp_sse_client.llm_bridge.openai_bridge import OpenAIBridge
 from mcp_sse_client.llm_bridge.anthropic_bridge import AnthropicBridge
 from mcp_sse_client.llm_bridge.ollama_bridge import OllamaBridge
+from mcp_sse_client.llm_bridge.openrouter_bridge import OpenRouterBridge
+from mcp_sse_client.llm_bridge.openrouter_client import OpenRouterClient, format_model_display
 from mcp_sse_client.llm_bridge.models import (
     OPENAI_MODELS, DEFAULT_OPENAI_MODEL,
     ANTHROPIC_MODELS, DEFAULT_ANTHROPIC_MODEL,
@@ -31,35 +33,62 @@ st.set_page_config(
 )
 
 # Initialize session state
-if "connected" not in st.session_state: 
+if "connected" not in st.session_state:
     st.session_state.connected = False
-if "client" not in st.session_state: 
+if "client" not in st.session_state:
     st.session_state.client = None
-if "llm_bridge" not in st.session_state: 
+if "llm_bridge" not in st.session_state:
     st.session_state.llm_bridge = None
-if "tools" not in st.session_state: 
+if "tools" not in st.session_state:
     st.session_state.tools = []
-if "messages" not in st.session_state: 
+if "messages" not in st.session_state:
     st.session_state.messages = []
 if "connection_error" not in st.session_state:
     st.session_state.connection_error = None
 if "api_keys" not in st.session_state:
     st.session_state.api_keys = {
         "openai": os.environ.get("OPENAI_API_KEY", ""),
-        "anthropic": os.environ.get("ANTHROPIC_API_KEY", "")
+        "anthropic": os.environ.get("ANTHROPIC_API_KEY", ""),
+        "openrouter": os.environ.get("OPENROUTER_API_KEY", "")
     }
-if "mcp_endpoint" not in st.session_state: 
+if "mcp_endpoint" not in st.session_state:
     st.session_state.mcp_endpoint = "http://localhost:8001/sse"
-if "llm_provider" not in st.session_state: 
+if "llm_provider" not in st.session_state:
     st.session_state.llm_provider = "openai"
-if "ollama_model" not in st.session_state: 
+if "openai_model" not in st.session_state:
+    st.session_state.openai_model = DEFAULT_OPENAI_MODEL
+if "anthropic_model" not in st.session_state:
+    st.session_state.anthropic_model = DEFAULT_ANTHROPIC_MODEL
+if "ollama_model" not in st.session_state:
     st.session_state.ollama_model = DEFAULT_OLLAMA_MODEL
-if "ollama_host" not in st.session_state: 
+if "ollama_host" not in st.session_state:
     st.session_state.ollama_host = ""
-if "ollama_models" not in st.session_state: 
+if "ollama_models" not in st.session_state:
     st.session_state.ollama_models = []
-if "chat_mode" not in st.session_state: 
+if "chat_mode" not in st.session_state:
     st.session_state.chat_mode = "auto"  # auto, chat, tools
+
+# OpenRouter session state
+if "openrouter_site_url" not in st.session_state:
+    st.session_state.openrouter_site_url = os.environ.get("OPENROUTER_SITE_URL", "")
+if "openrouter_site_name" not in st.session_state:
+    st.session_state.openrouter_site_name = os.environ.get("OPENROUTER_SITE_NAME", "")
+
+# OpenRouter model caches for each provider
+if "openai_openrouter_models" not in st.session_state:
+    st.session_state.openai_openrouter_models = []
+if "anthropic_openrouter_models" not in st.session_state:
+    st.session_state.anthropic_openrouter_models = []
+if "google_openrouter_models" not in st.session_state:
+    st.session_state.google_openrouter_models = []
+
+# Selected OpenRouter models
+if "openai_openrouter_model" not in st.session_state:
+    st.session_state.openai_openrouter_model = None
+if "anthropic_openrouter_model" not in st.session_state:
+    st.session_state.anthropic_openrouter_model = None
+if "google_openrouter_model" not in st.session_state:
+    st.session_state.google_openrouter_model = None
 
 # --- Ollama Helper Functions ---
 async def fetch_ollama_models(host=None):
@@ -111,6 +140,59 @@ async def fetch_ollama_models(host=None):
         print(f"Error fetching Ollama models: {e}")
         return []
 
+# --- OpenRouter Helper Functions ---
+async def fetch_openrouter_models_by_provider(api_key, provider, limit=5):
+    """Fetch top N most popular models for a specific provider from OpenRouter.
+    
+    Args:
+        api_key: OpenRouter API key
+        provider: Provider name (e.g., 'openai', 'anthropic', 'google')
+        limit: Maximum number of models to return
+        
+    Returns:
+        List of formatted model dictionaries
+    """
+    try:
+        client = OpenRouterClient(
+            api_key=api_key,
+            site_url=st.session_state.openrouter_site_url,
+            site_name=st.session_state.openrouter_site_name
+        )
+        
+        models = await client.fetch_top_models_by_provider(provider, limit)
+        
+        # Format models for display
+        formatted_models = []
+        for model in models:
+            formatted = format_model_display(model)
+            formatted_models.append(formatted)
+        
+        return formatted_models
+    except Exception as e:
+        print(f"Error fetching {provider} models from OpenRouter: {e}")
+        return []
+
+def sync_fetch_openrouter_models(api_key, provider, limit=5):
+    """Synchronous wrapper for OpenRouter model fetching."""
+    try:
+        # Handle event loop properly
+        try:
+            loop = asyncio.get_running_loop()
+            # If we're in an existing loop, use thread executor
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(
+                    asyncio.run,
+                    fetch_openrouter_models_by_provider(api_key, provider, limit)
+                )
+                return future.result(timeout=30)
+        except RuntimeError:
+            # No event loop running, safe to use asyncio.run()
+            return asyncio.run(fetch_openrouter_models_by_provider(api_key, provider, limit))
+    except Exception as e:
+        print(f"Error in sync fetch: {e}")
+        return []
+
 # --- Direct LLM Chat Functions ---
 async def chat_with_llm_directly(user_input):
     """Chat directly with LLM without tools."""
@@ -129,36 +211,44 @@ async def chat_with_llm_directly(user_input):
         except Exception as e:
             return f"Error chatting with Ollama: {e}"
     
-    elif st.session_state.llm_provider == "openai":
+    elif st.session_state.llm_provider in ["openai", "anthropic", "google"]:
         try:
+            # Use OpenRouter for these providers
             import openai
-            client = openai.AsyncOpenAI(api_key=st.session_state.api_keys["openai"])
+            
+            # Get selected model for the provider
+            selected_model_key = f"{st.session_state.llm_provider}_openrouter_model"
+            selected_model = st.session_state.get(selected_model_key)
+            
+            if not selected_model:
+                return f"No {st.session_state.llm_provider} model selected. Please select a model first."
+            
+            if not st.session_state.api_keys["openrouter"]:
+                return "No OpenRouter API key configured. Please add your API key."
+            
+            # Create OpenRouter client
+            client = openai.AsyncOpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=st.session_state.api_keys["openrouter"]
+            )
+            
+            # Prepare extra headers
+            extra_headers = {}
+            if st.session_state.openrouter_site_url:
+                extra_headers["HTTP-Referer"] = st.session_state.openrouter_site_url
+            if st.session_state.openrouter_site_name:
+                extra_headers["X-Title"] = st.session_state.openrouter_site_name
             
             response = await client.chat.completions.create(
-                model=DEFAULT_OPENAI_MODEL,
-                messages=[{"role": "user", "content": user_input}]
+                extra_headers=extra_headers,
+                model=selected_model,
+                messages=st.session_state.messages + [{"role": "user", "content": user_input}]
             )
             
             return response.choices[0].message.content
             
         except Exception as e:
-            return f"Error chatting with OpenAI: {e}"
-    
-    elif st.session_state.llm_provider == "anthropic":
-        try:
-            import anthropic
-            client = anthropic.AsyncAnthropic(api_key=st.session_state.api_keys["anthropic"])
-            
-            response = await client.messages.create(
-                model=DEFAULT_ANTHROPIC_MODEL,
-                max_tokens=1000,
-                messages=[{"role": "user", "content": user_input}]
-            )
-            
-            return response.content[0].text
-            
-        except Exception as e:
-            return f"Error chatting with Anthropic: {e}"
+            return f"Error chatting with {st.session_state.llm_provider} via OpenRouter: {e}"
     
     return "No LLM provider configured for direct chat."
 
@@ -180,10 +270,19 @@ async def connect_to_server_async():
         
         # Create LLM bridge based on provider
         llm_bridge = None
-        if st.session_state.llm_provider == "openai" and st.session_state.api_keys["openai"]:
-            llm_bridge = OpenAIBridge(client, api_key=st.session_state.api_keys["openai"])
-        elif st.session_state.llm_provider == "anthropic" and st.session_state.api_keys["anthropic"]:
-            llm_bridge = AnthropicBridge(client, api_key=st.session_state.api_keys["anthropic"])
+        if st.session_state.llm_provider in ["openai", "anthropic", "google"] and st.session_state.api_keys["openrouter"]:
+            # Get selected model for the provider
+            selected_model_key = f"{st.session_state.llm_provider}_openrouter_model"
+            selected_model = st.session_state.get(selected_model_key)
+            
+            if selected_model:
+                llm_bridge = OpenRouterBridge(
+                    client,
+                    api_key=st.session_state.api_keys["openrouter"],
+                    model=selected_model,
+                    site_url=st.session_state.openrouter_site_url,
+                    site_name=st.session_state.openrouter_site_name
+                )
         elif st.session_state.llm_provider == "ollama":
             host = st.session_state.ollama_host if st.session_state.ollama_host else None
             llm_bridge = OllamaBridge(client, model=st.session_state.ollama_model, host=host)
@@ -377,7 +476,7 @@ async def process_user_message_async(user_input):
             return "❌ No LLM bridge configured. Please configure an API key and connect to MCP server."
         
         try:
-            result = await st.session_state.llm_bridge.process_query(user_input)
+            result = await st.session_state.llm_bridge.process_query(user_input, st.session_state.messages)
             
             # Format the response nicely
             if isinstance(result, dict):
@@ -422,7 +521,7 @@ async def process_user_message_async(user_input):
             return await chat_with_llm_directly(user_input)
         
         try:
-            result = await st.session_state.llm_bridge.process_query(user_input)
+            result = await st.session_state.llm_bridge.process_query(user_input, st.session_state.messages)
             
             # Format the response nicely
             if isinstance(result, dict):
@@ -501,26 +600,96 @@ with st.sidebar:
     # LLM Provider
     llm_provider = st.selectbox(
         "LLM Provider",
-        ["openai", "anthropic", "ollama"],
-        index=["openai", "anthropic", "ollama"].index(st.session_state.llm_provider)
+        ["openai", "anthropic", "google", "ollama"],
+        index=["openai", "anthropic", "google", "ollama"].index(st.session_state.llm_provider) if st.session_state.llm_provider in ["openai", "anthropic", "google", "ollama"] else 0
     )
     st.session_state.llm_provider = llm_provider
     
     # Provider specific settings
-    if llm_provider == "openai":
+    if llm_provider in ["openai", "anthropic", "google"]:
+        st.subheader(f"{llm_provider.title()} Models (via OpenRouter)")
+        
+        # OpenRouter API Key
         api_key = st.text_input(
-            "OpenAI API Key",
+            "OpenRouter API Key",
             type="password",
-            value=st.session_state.api_keys["openai"]
+            value=st.session_state.api_keys["openrouter"],
+            help="Get your API key from openrouter.ai"
         )
-        st.session_state.api_keys["openai"] = api_key
-    elif llm_provider == "anthropic":
-        api_key = st.text_input(
-            "Anthropic API Key",
-            type="password",
-            value=st.session_state.api_keys["anthropic"]
-        )
-        st.session_state.api_keys["anthropic"] = api_key
+        st.session_state.api_keys["openrouter"] = api_key
+        
+        # Optional site information
+        with st.expander("Optional: Site Information for Rankings"):
+            site_url = st.text_input(
+                "Site URL",
+                value=st.session_state.openrouter_site_url,
+                help="Your site URL for rankings on openrouter.ai"
+            )
+            st.session_state.openrouter_site_url = site_url
+            
+            site_name = st.text_input(
+                "Site Name",
+                value=st.session_state.openrouter_site_name,
+                help="Your site name for rankings on openrouter.ai"
+            )
+            st.session_state.openrouter_site_name = site_name
+        
+        # Refresh models button
+        if st.button(f"Refresh Top {llm_provider.title()} Models", key=f"refresh_{llm_provider}"):
+            if api_key:
+                with st.spinner(f"Fetching top 5 {llm_provider} models from OpenRouter..."):
+                    models = sync_fetch_openrouter_models(api_key, llm_provider, 5)
+                    st.session_state[f"{llm_provider}_openrouter_models"] = models
+                    if models:
+                        st.success(f"Found {len(models)} popular {llm_provider} models")
+                    else:
+                        st.warning(f"No {llm_provider} models found")
+            else:
+                st.error("Please enter your OpenRouter API key first")
+        
+        # Model selection dropdown
+        models_key = f"{llm_provider}_openrouter_models"
+        selected_model_key = f"{llm_provider}_openrouter_model"
+        
+        if st.session_state.get(models_key):
+            model_options = []
+            for model in st.session_state[models_key]:
+                model_options.append((model["display"], model["id"]))
+            
+            if model_options:
+                selected_model = st.selectbox(
+                    f"Select {llm_provider.title()} Model",
+                    options=[opt[1] for opt in model_options],
+                    format_func=lambda x: next(opt[0] for opt in model_options if opt[1] == x),
+                    help=f"Top 5 most popular {llm_provider} models on OpenRouter",
+                    key=f"{llm_provider}_model_select"
+                )
+                st.session_state[selected_model_key] = selected_model
+                
+                # Show model details
+                selected_model_data = next(
+                    (m for m in st.session_state[models_key] if m["id"] == selected_model),
+                    None
+                )
+                if selected_model_data:
+                    with st.expander("Model Details"):
+                        st.write(f"**Description:** {selected_model_data.get('description', 'N/A')}")
+                        context_length = selected_model_data.get('context_length', 'Unknown')
+                        if isinstance(context_length, (int, float)) and context_length > 0:
+                            st.write(f"**Context Length:** {int(context_length):,} tokens")
+                        else:
+                            st.write(f"**Context Length:** {context_length}")
+                        
+                        pricing = selected_model_data.get('pricing', {})
+                        if pricing:
+                            try:
+                                prompt_cost = float(pricing.get('prompt', 0)) * 1000000
+                                completion_cost = float(pricing.get('completion', 0)) * 1000000
+                                st.write(f"**Pricing:** ${prompt_cost:.3f} prompt / ${completion_cost:.3f} completion per 1M tokens")
+                            except (ValueError, TypeError):
+                                st.write("**Pricing:** Information unavailable")
+        else:
+            st.info(f"Click 'Refresh Top {llm_provider.title()} Models' to load available models")
     elif llm_provider == "ollama":
         # Ollama Host input
         ollama_host = st.text_input(
@@ -618,7 +787,17 @@ with st.sidebar:
     if st.session_state.connected:
         st.caption(f"Server: {st.session_state.mcp_endpoint}")
         st.caption(f"LLM: {st.session_state.llm_provider}")
-        if st.session_state.llm_provider == "ollama":
+        
+        if st.session_state.llm_provider in ["openai", "anthropic", "google"]:
+            selected_model_key = f"{st.session_state.llm_provider}_openrouter_model"
+            selected_model = st.session_state.get(selected_model_key)
+            if selected_model:
+                # Extract model name from full ID (e.g., "openai/gpt-4o" -> "gpt-4o")
+                model_name = selected_model.split('/')[-1] if '/' in selected_model else selected_model
+                st.caption(f"Model: {model_name} (via OpenRouter)")
+            else:
+                st.caption(f"Model: Not selected")
+        elif st.session_state.llm_provider == "ollama":
             st.caption(f"Model: {st.session_state.ollama_model}")
             if st.session_state.ollama_host:
                 st.caption(f"Host: {st.session_state.ollama_host}")
@@ -657,7 +836,11 @@ if not st.session_state.connected and st.session_state.chat_mode != "chat":
     st.write(f"Current endpoint: {st.session_state.mcp_endpoint}")
     st.write(f"Current provider: {st.session_state.llm_provider}")
     st.write(f"Current mode: {st.session_state.chat_mode}")
-    if st.session_state.llm_provider == "ollama":
+    if st.session_state.llm_provider == "openai":
+        st.write(f"OpenAI model: {st.session_state.openai_model}")
+    elif st.session_state.llm_provider == "anthropic":
+        st.write(f"Anthropic model: {st.session_state.anthropic_model}")
+    elif st.session_state.llm_provider == "ollama":
         st.write(f"Ollama model: {st.session_state.ollama_model}")
         st.write(f"Ollama host: {st.session_state.ollama_host or 'default'}")
         st.write(f"Available models: {len(st.session_state.ollama_models)} found")
@@ -691,6 +874,14 @@ else:
         elif role == "assistant":
             with st.chat_message("assistant"):
                 st.write(content)
+    
+    # Clear conversation button
+    if st.session_state.messages:
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
+            if st.button("🗑️ Clear Conversation", use_container_width=True):
+                st.session_state.messages = []
+                st.rerun()
     
     # Chat input
     if prompt := st.chat_input("Type your message here..."):

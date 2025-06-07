@@ -35,23 +35,26 @@ class AnthropicBridge(LLMBridge):
         """
         return to_anthropic_format(tools)
     
-    async def submit_query(self, query: str, formatted_tools: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def submit_query(self, query: str, formatted_tools: List[Dict[str, Any]], conversation_history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         """Submit a query to Anthropic with the formatted tools.
         
         Args:
             query: User query string
             formatted_tools: Tools in Anthropic format
+            conversation_history: Previous conversation messages (optional)
             
         Returns:
             Anthropic API response
         """
+        # Build messages with conversation history
+        messages = conversation_history.copy() if conversation_history else []
+        messages.append({"role": "user", "content": query})
+        
         response = self.llm_client.messages.create(
             model=self.model,
             max_tokens=4096,
             system="You are a helpful tool-using assistant.",
-            messages=[
-                {"role": "user", "content": query}
-            ],
+            messages=messages,
             tools=formatted_tools
         )
         

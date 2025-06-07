@@ -20,6 +20,21 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+### Environment Variables
+
+For convenience, you can set API keys and OpenRouter configuration via environment variables:
+
+```bash
+# Required for LLM providers
+export OPENAI_API_KEY="your-openai-key"
+export ANTHROPIC_API_KEY="your-anthropic-key"
+export OPENROUTER_API_KEY="your-openrouter-key"
+
+# Optional OpenRouter configuration for better rankings
+export OPENROUTER_SITE_URL="https://your-site.com"
+export OPENROUTER_SITE_NAME="Your App Name"
+```
+
 ![MCP Streamlit App Screenshot](image.png)
 
 ## What is MCP SSE Client?
