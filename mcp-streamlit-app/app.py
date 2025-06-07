@@ -540,20 +540,24 @@ def connect_to_server():
             success, message, tool_count = asyncio.run(connect_to_server_async())
         
         if success:
-            st.success(f"✅ {message}")
+            # Single consolidated success message with all connection details
+            connection_details = [f"Connected to {st.session_state.mcp_endpoint}"]
+            
             if st.session_state.llm_bridge:
-                st.success(f"✅ LLM bridge configured for {st.session_state.llm_provider}")
                 if st.session_state.llm_provider == "ollama":
-                    st.success(f"✅ Using Ollama model: {st.session_state.ollama_model}")
+                    connection_details.append(f"LLM: {st.session_state.llm_provider} ({st.session_state.ollama_model})")
+                else:
+                    connection_details.append(f"LLM: {st.session_state.llm_provider}")
+            
             if tool_count > 0:
-                st.success(f"✅ Found {tool_count} available tools")
-                # Show tool names for debugging
-                # Removed duplicate "Available tools" display - keeping only the expandable dropdown version
-                # if st.session_state.tools:
-                #     tool_names = [tool.name for tool in st.session_state.tools]
-                #     st.info(f"🔧 Available tools: {', '.join(tool_names)}")
+                connection_details.append(f"Tools: {tool_count} available")
             else:
-                st.warning("⚠️ No tools found on the server")
+                connection_details.append("Tools: None found")
+            
+            # Show single success message with all details
+            st.success("✅ " + " | ".join(connection_details))
+            # Force UI refresh to update button and status immediately
+            st.rerun()
         else:
             st.error(f"❌ {message}")
     except Exception as e:
@@ -569,6 +573,8 @@ def disconnect_from_server():
     st.session_state.tools = []
     st.session_state.connection_error = None
     st.success("✅ Disconnected from server")
+    # Force UI refresh to update button and status immediately
+    st.rerun()
 
 # --- Response Parsing Helper ---
 def extract_content_from_llm_response(llm_response, response_stage="final"):
@@ -1100,74 +1106,98 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     
-    # Single dynamic connection button
+    # Simplified connection button with only two clear states
     if st.session_state.connected:
-        button_text = "🟢 Connected"
-        button_help = "Currently connected. Click to reconnect with current settings."
-        button_type = "secondary"
+        button_text = "🟢 Disconnect"
+        button_help = "Click to disconnect from the server"
+        button_class = "disconnect-button"
     else:
         button_text = "🔵 Connect"
-        button_help = "Connect to the specified server and LLM provider."
-        button_type = "primary"
+        button_help = "Click to connect to the server"
+        button_class = "connect-button"
     
-    if st.button(button_text, help=button_help, use_container_width=True, type=button_type):
+    # Use regular Streamlit button
+    if st.button(button_text, help=button_help, use_container_width=True, key="main_connect_button"):
         if st.session_state.connected:
-            # Disconnect first, then reconnect
+            # Disconnect when connected
             disconnect_from_server()
-        with st.spinner("Connecting..."):
-            connect_to_server()
+        else:
+            # Connect when disconnected
+            with st.spinner("Connecting..."):
+                connect_to_server()
     
-    # Compact status display with modern styling
-    status_color = "var(--success)" if st.session_state.connected else "var(--error)"
-    status_icon = "🟢" if st.session_state.connected else "🔴"
-    status_text = "Connected" if st.session_state.connected else "Not Connected"
+    # Apply button styling based on connection state
+    button_color = "#10b981" if st.session_state.connected else "#3b82f6"
+    hover_color = "#059669" if st.session_state.connected else "#2563eb"
     
-    # Get model info for display
+    st.markdown(f"""
+    <style>
+    /* Clean button styling with two clear states */
+    button[data-testid*="main_connect_button"] {{
+        background-color: {button_color} !important;
+        background: {button_color} !important;
+        background-image: none !important;
+        border: none !important;
+        color: white !important;
+        font-weight: 500 !important;
+        border-radius: 0.5rem !important;
+        transition: all 0.2s ease !important;
+    }}
+    
+    button[data-testid*="main_connect_button"]:hover {{
+        background-color: {hover_color} !important;
+        background: {hover_color} !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    }}
+    
+    button[data-testid*="main_connect_button"]:active {{
+        transform: translateY(0) !important;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Simple, clean status display
     if st.session_state.connected:
+        status_color = "#10b981"  # Green
+        status_icon = "🟢"
+        status_text = "Connected"
+        
+        # Get model info for display
         if st.session_state.llm_provider in ['openai', 'anthropic', 'google']:
             model_raw = st.session_state.get(f'{st.session_state.llm_provider}_openrouter_model')
             model_display = model_raw.split('/')[-1] if model_raw and '/' in model_raw else (model_raw or 'Not selected')
         else:
             model_display = st.session_state.ollama_model
-    else:
-        model_display = "Not connected"
-    
-    # Build the status HTML with improved responsive design
-    status_html = f"""
-    <div style="background: var(--secondary-bg); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-md); margin: var(--space-md) 0; width: 100%; box-sizing: border-box;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-sm); flex-wrap: wrap;">
-            <div style="display: flex; align-items: center; gap: var(--space-sm); min-width: 0; flex: 1;">
+        
+        # Single clean status display for connected state
+        status_html = f"""
+        <div style="background: var(--secondary-bg); border: 1px solid {status_color}; border-radius: var(--radius-lg); padding: var(--space-md); margin: var(--space-md) 0;">
+            <div style="display: flex; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-sm);">
                 <span style="font-size: 1.1rem;">{status_icon}</span>
-                <span style="font-weight: 600; color: {status_color}; white-space: nowrap;">{status_text}</span>
-            </div>"""
-    
-    if st.session_state.connected:
-        status_html += f'<div style="color: var(--text-secondary); font-size: 0.75rem; white-space: nowrap;">🎯 {model_display}</div>'
-    
-    status_html += "</div>"
-    
-    if st.session_state.connected:
-        status_html += f"""
-        <div style="color: var(--text-secondary); font-size: 0.8rem; line-height: 1.3; display: flex; flex-direction: column; gap: 0.2rem;">
-            <div style="display: flex; align-items: flex-start; gap: 0.4rem; min-width: 0;">
-                <span style="flex-shrink: 0; margin-top: 0.1rem;">📡</span>
-                <span style="font-size: 0.75rem; word-break: break-all; overflow-wrap: break-word; min-width: 0; flex: 1;">{st.session_state.mcp_endpoint}</span>
+                <span style="font-weight: 600; color: {status_color};">{status_text}</span>
             </div>
-            <div style="display: flex; align-items: center; gap: 0.4rem;">
-                <span style="flex-shrink: 0;">🤖</span>
-                <span style="font-size: 0.75rem;">{st.session_state.llm_provider.title()}</span>
-            </div>"""
+            <div style="color: var(--text-secondary); font-size: 0.85rem; line-height: 1.4;">
+                <div>📡 {st.session_state.mcp_endpoint}</div>
+                <div>🤖 {st.session_state.llm_provider.title()} ({model_display})</div>
+                <div>🛠️ {len(st.session_state.tools)} tools available</div>
+            </div>
+        </div>
+        """
+    else:
+        status_color = "#ef4444"  # Red
+        status_icon = "🔴"
+        status_text = "Not Connected"
         
-        if st.session_state.llm_provider == "ollama" and st.session_state.ollama_host:
-            status_html += f"""
-            <div style="display: flex; align-items: flex-start; gap: 0.4rem; min-width: 0;">
-                <span style="flex-shrink: 0; margin-top: 0.1rem;">🌐</span>
-                <span style="font-size: 0.75rem; word-break: break-all; overflow-wrap: break-word; min-width: 0; flex: 1;">{st.session_state.ollama_host}</span>
-            </div>"""
-        
-        status_html += "</div>"
-    
-    status_html += "</div>"
+        # Simple status display for disconnected state
+        status_html = f"""
+        <div style="background: var(--secondary-bg); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-md); margin: var(--space-md) 0;">
+            <div style="display: flex; align-items: center; gap: var(--space-sm);">
+                <span style="font-size: 1.1rem;">{status_icon}</span>
+                <span style="font-weight: 600; color: {status_color};">{status_text}</span>
+            </div>
+        </div>
+        """
     
     st.markdown(status_html, unsafe_allow_html=True)
     

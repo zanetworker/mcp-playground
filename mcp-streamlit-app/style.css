@@ -124,41 +124,28 @@ header {visibility: hidden;}
   outline: none;
 }
 
-/* Button Styling */
-.stButton > button {
-  background: var(--accent-gradient);
-  border: none;
-  border-radius: var(--radius-md);
-  color: white;
-  font-weight: 500;
-  padding: var(--space-sm) var(--space-lg);
-  transition: all var(--transition-fast);
-  box-shadow: var(--shadow-md);
-  width: 100%;
+/* Simplified Button Styling - Let app.py handle connection button colors */
+/* General sidebar button styling for other buttons */
+div[data-testid="stSidebar"] .stButton > button:not([data-testid*="main_connect_button"]),
+.css-1d391kg .stButton > button:not([data-testid*="main_connect_button"]) {
+  background-color: var(--accent-primary) !important;
+  background: var(--accent-primary) !important;
+  border: none !important;
+  border-radius: var(--radius-md) !important;
+  color: white !important;
+  font-weight: 500 !important;
+  padding: var(--space-sm) var(--space-md) !important;
+  transition: all var(--transition-fast) !important;
+  box-shadow: var(--shadow-sm) !important;
+  width: 100% !important;
 }
 
-.stButton > button:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
-}
-
-.stButton > button:active {
-  transform: translateY(0);
-}
-
-/* Connection Button States */
-.stButton > button[data-testid*="baseButton-secondary"] {
-  background: var(--success);
-  color: white;
-}
-
-.stButton > button[data-testid*="baseButton-secondary"]:hover {
-  background: #0ea574;
-  transform: translateY(-1px);
-}
-
-.stButton > button[data-testid*="baseButton-primary"] {
-  background: var(--accent-gradient);
+div[data-testid="stSidebar"] .stButton > button:not([data-testid*="main_connect_button"]):hover,
+.css-1d391kg .stButton > button:not([data-testid*="main_connect_button"]):hover {
+  background-color: #4f46e5 !important;
+  background: #4f46e5 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: var(--shadow-md) !important;
 }
 
 /* Sidebar specific improvements */
