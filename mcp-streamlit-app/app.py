@@ -78,6 +78,14 @@ if "chat_mode" not in st.session_state:
 if "show_tools_only" not in st.session_state:
     st.session_state.show_tools_only = True  # Default to showing only tool-capable models
 
+# Auto-refresh session state
+if "models_loaded_on_startup" not in st.session_state:
+    st.session_state.models_loaded_on_startup = False
+if "last_provider" not in st.session_state:
+    st.session_state.last_provider = None
+if "auto_refresh_enabled" not in st.session_state:
+    st.session_state.auto_refresh_enabled = True
+
 # OpenRouter session state
 if "openrouter_site_url" not in st.session_state:
     st.session_state.openrouter_site_url = os.environ.get("OPENROUTER_SITE_URL", "")
@@ -279,6 +287,128 @@ def sync_fetch_openrouter_models(api_key, provider, limit=5, tools_only=False):
         print(f"Error in sync fetch: {e}")
         return []
 
+# --- Auto-Refresh Functions ---
+async def auto_refresh_models_async(provider: str, force: bool = False) -> bool:
+    """Auto-refresh models for the specified provider.
+    
+    Args:
+        provider: The LLM provider ('openai', 'anthropic', 'google', 'ollama')
+        force: Force refresh even if models are already loaded
+        
+    Returns:
+        bool: True if models were successfully refreshed, False otherwise
+    """
+    try:
+        # Check if we should refresh
+        if not force and not should_refresh_models(provider):
+            return True
+        
+        if provider in ["openai", "anthropic", "google"]:
+            # OpenRouter providers
+            api_key = st.session_state.api_keys.get("openrouter")
+            if not api_key:
+                print(f"No OpenRouter API key available for {provider}")
+                return False
+            
+            models = await fetch_openrouter_models_by_provider(
+                api_key, provider, 5, st.session_state.show_tools_only
+            )
+            
+            if models:
+                st.session_state[f"{provider}_openrouter_models"] = models
+                # Auto-select first model if none selected
+                selected_model_key = f"{provider}_openrouter_model"
+                if not st.session_state.get(selected_model_key):
+                    st.session_state[selected_model_key] = models[0]["id"]
+                return True
+            else:
+                print(f"No models found for {provider}")
+                return False
+                
+        elif provider == "ollama":
+            # Ollama provider
+            models = await fetch_ollama_models(st.session_state.ollama_host)
+            if models:
+                st.session_state.ollama_models = [str(model) for model in models]
+                # Auto-select first model if current model not in list
+                if (st.session_state.ollama_model not in st.session_state.ollama_models and
+                    st.session_state.ollama_models):
+                    st.session_state.ollama_model = st.session_state.ollama_models[0]
+                return True
+            else:
+                print("No Ollama models found")
+                return False
+        
+        return False
+        
+    except Exception as e:
+        print(f"Error auto-refreshing {provider} models: {e}")
+        return False
+
+def auto_refresh_models(provider: str, force: bool = False) -> bool:
+    """Synchronous wrapper for auto-refresh models."""
+    try:
+        # Handle event loop properly
+        try:
+            loop = asyncio.get_running_loop()
+            # If we're in an existing loop, use thread executor
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, auto_refresh_models_async(provider, force))
+                return future.result(timeout=30)
+        except RuntimeError:
+            # No event loop running, safe to use asyncio.run()
+            return asyncio.run(auto_refresh_models_async(provider, force))
+    except Exception as e:
+        print(f"Error in sync auto-refresh: {e}")
+        return False
+
+def should_refresh_models(provider: str) -> bool:
+    """Determine if models should be refreshed for the given provider."""
+    if provider in ["openai", "anthropic", "google"]:
+        models_key = f"{provider}_openrouter_models"
+        return not st.session_state.get(models_key)
+    elif provider == "ollama":
+        return not st.session_state.get("ollama_models")
+    return True
+
+def detect_provider_change() -> bool:
+    """Detect if the provider has changed since last run."""
+    current_provider = st.session_state.llm_provider
+    last_provider = st.session_state.get("last_provider")
+    
+    if last_provider != current_provider:
+        st.session_state.last_provider = current_provider
+        return True
+    return False
+
+def handle_startup_auto_refresh():
+    """Handle auto-refresh on app startup."""
+    if not st.session_state.models_loaded_on_startup and st.session_state.auto_refresh_enabled:
+        current_provider = st.session_state.llm_provider
+        
+        with st.spinner(f"Loading {current_provider} models..."):
+            success = auto_refresh_models(current_provider, force=False)
+            if success:
+                st.session_state.models_loaded_on_startup = True
+                st.session_state.last_provider = current_provider
+
+def handle_provider_change_auto_refresh():
+    """Handle auto-refresh when provider changes."""
+    if detect_provider_change() and st.session_state.auto_refresh_enabled:
+        current_provider = st.session_state.llm_provider
+        
+        with st.spinner(f"Loading {current_provider} models..."):
+            success = auto_refresh_models(current_provider, force=True)
+            if success:
+                # Clear previous provider's selection to avoid confusion
+                providers = ["openai", "anthropic", "google"]
+                for provider in providers:
+                    if provider != current_provider:
+                        selected_key = f"{provider}_openrouter_model"
+                        if selected_key in st.session_state:
+                            st.session_state[selected_key] = None
+
 # --- Direct LLM Chat Functions ---
 async def chat_with_llm_directly(user_input):
     """Chat directly with LLM without tools."""
@@ -418,9 +548,10 @@ def connect_to_server():
             if tool_count > 0:
                 st.success(f"✅ Found {tool_count} available tools")
                 # Show tool names for debugging
-                if st.session_state.tools:
-                    tool_names = [tool.name for tool in st.session_state.tools]
-                    st.info(f"🔧 Available tools: {', '.join(tool_names)}")
+                # Removed duplicate "Available tools" display - keeping only the expandable dropdown version
+                # if st.session_state.tools:
+                #     tool_names = [tool.name for tool in st.session_state.tools]
+                #     st.info(f"🔧 Available tools: {', '.join(tool_names)}")
             else:
                 st.warning("⚠️ No tools found on the server")
         else:
@@ -805,6 +936,10 @@ with st.sidebar:
     )
     st.session_state.llm_provider = llm_provider
     
+    # Handle auto-refresh on startup and provider changes
+    handle_startup_auto_refresh()
+    handle_provider_change_auto_refresh()
+    
     # Provider specific settings
     if llm_provider in ["openai", "anthropic", "google"]:
         st.markdown(f"""
@@ -848,29 +983,6 @@ with st.sidebar:
         )
         st.session_state.show_tools_only = show_tools_only
         
-        # Refresh models button
-        button_text = f"Refresh Top {llm_provider.title()} Models"
-        if show_tools_only:
-            button_text += " (Tool-Capable Only)"
-        
-        if st.button(button_text, key=f"refresh_{llm_provider}"):
-            if api_key:
-                spinner_text = f"Fetching top 5 {llm_provider} models from OpenRouter..."
-                if show_tools_only:
-                    spinner_text = f"Fetching tool-capable {llm_provider} models from OpenRouter..."
-                
-                with st.spinner(spinner_text):
-                    models = sync_fetch_openrouter_models(api_key, llm_provider, 5, show_tools_only)
-                    st.session_state[f"{llm_provider}_openrouter_models"] = models
-                    if models:
-                        model_type = "tool-capable " if show_tools_only else "popular "
-                        st.success(f"Found {len(models)} {model_type}{llm_provider} models")
-                    else:
-                        model_type = "tool-capable " if show_tools_only else ""
-                        st.warning(f"No {model_type}{llm_provider} models found")
-            else:
-                st.error("Please enter your OpenRouter API key first")
-        
         # Model selection dropdown
         models_key = f"{llm_provider}_openrouter_models"
         selected_model_key = f"{llm_provider}_openrouter_model"
@@ -913,7 +1025,7 @@ with st.sidebar:
                             except (ValueError, TypeError):
                                 st.write("**Pricing:** Information unavailable")
         else:
-            st.info(f"Click 'Refresh Top {llm_provider.title()} Models' to load available models")
+            st.info(f"Models will be automatically loaded when switching to {llm_provider.title()}")
     elif llm_provider == "ollama":
         # Ollama Host input
         ollama_host = st.text_input(
@@ -922,33 +1034,6 @@ with st.sidebar:
             help="Enter the Ollama server URL (e.g., 'http://localhost:11434'). Leave blank to use default."
         )
         st.session_state.ollama_host = ollama_host
-        
-        # Refresh Ollama models button
-        if st.button("Refresh Ollama Models", key="refresh_ollama_models"):
-            with st.spinner("Fetching Ollama models..."):
-                try:
-                    # Fetch models with proper event loop handling
-                    try:
-                        loop = asyncio.get_running_loop()
-                        # If we're in an existing loop, use thread executor
-                        import concurrent.futures
-                        with concurrent.futures.ThreadPoolExecutor() as executor:
-                            future = executor.submit(asyncio.run, fetch_ollama_models(st.session_state.ollama_host))
-                            models = future.result(timeout=30)
-                    except RuntimeError:
-                        # No event loop running, safe to use asyncio.run()
-                        models = asyncio.run(fetch_ollama_models(st.session_state.ollama_host))
-                    
-                    if models:
-                        # Ensure models are stored as a list of strings
-                        st.session_state.ollama_models = [str(model) for model in models]
-                        st.success(f"Found {len(models)} Ollama models: {', '.join(st.session_state.ollama_models)}")
-                        # Force a rerun to update the UI
-                        st.rerun()
-                    else:
-                        st.warning("No Ollama models found. Is Ollama running?")
-                except Exception as e:
-                    st.error(f"Error fetching Ollama models: {e}")
         
         # Model selection
         # If we have models, show a dropdown, otherwise show a text input
@@ -962,7 +1047,7 @@ with st.sidebar:
                 "Ollama Model",
                 model_options,
                 index=model_options.index(st.session_state.ollama_model) if st.session_state.ollama_model in model_options else 0,
-                help="Select an Ollama model from the list. Click 'Refresh Ollama Models' to update the list."
+                help="Select an Ollama model from the list. Models are automatically loaded when switching to Ollama."
             )
             st.session_state.ollama_model = ollama_model
         else:
@@ -970,7 +1055,7 @@ with st.sidebar:
             ollama_model = st.text_input(
                 "Ollama Model Name",
                 value=st.session_state.ollama_model,
-                help="Enter the name of the locally available Ollama model (e.g., 'llama3', 'mistral'). Click 'Refresh Ollama Models' to detect available models."
+                help="Enter the name of the locally available Ollama model (e.g., 'llama3', 'mistral'). Models are automatically detected when switching to Ollama."
             )
             st.session_state.ollama_model = ollama_model
 
