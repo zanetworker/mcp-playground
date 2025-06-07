@@ -38,7 +38,8 @@ export OPENROUTER_SITE_URL="https://your-site.com"
 export OPENROUTER_SITE_NAME="Your App Name"
 ```
 
-![MCP Streamlit App Screenshot](image.png)
+![MCP Streamlit App with SSE URL Highlighting](mcp-streamlit-app-screenshot.png)
+*The updated Streamlit interface now prominently highlights the `/sse` URL requirement with helpful tooltips and validation.*
 
 ## What is MCP SSE Client?
 
