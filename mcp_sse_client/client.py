@@ -3,6 +3,9 @@ MCP SSE Client - A Python client for interacting with Model Context Protocol (MC
 
 This module provides a client for connecting to MCP endpoints using Server-Sent Events (SSE),
 listing available tools, and invoking tools with parameters.
+
+IMPORTANT: MCP server URLs must end with '/sse' for Server-Sent Events communication.
+Example: http://localhost:8000/sse
 """
 
 import asyncio
@@ -77,18 +80,36 @@ class MCPTimeoutError(Exception):
 
 
 class MCPClient:
-    """Client for interacting with Model Context Protocol (MCP) endpoints"""
+    """Client for interacting with Model Context Protocol (MCP) endpoints
+    
+    IMPORTANT: MCP server URLs must end with '/sse' for Server-Sent Events communication.
+    Example: http://localhost:8000/sse
+    """
     
     def __init__(self, endpoint: str, timeout: float = 30.0, max_retries: int = 3):
         """Initialize MCP client with endpoint URL
         
         Args:
-            endpoint: The MCP endpoint URL (must be http or https)
+            endpoint: The MCP endpoint URL (must be http or https and should end with '/sse')
             timeout: Connection timeout in seconds
             max_retries: Maximum number of retry attempts
+            
+        Raises:
+            ValueError: If endpoint is not a valid HTTP(S) URL
+            
+        Note:
+            The endpoint URL should end with '/sse' for proper Server-Sent Events communication.
+            Example: http://localhost:8000/sse
         """
         if urlparse(endpoint).scheme not in ("http", "https"):
             raise ValueError(f"Endpoint {endpoint} is not a valid HTTP(S) URL")
+        
+        # Warn if URL doesn't end with /sse (but don't fail - allow flexibility)
+        if not endpoint.endswith('/sse'):
+            logger.warning(f"Endpoint URL '{endpoint}' does not end with '/sse'. "
+                         f"MCP servers typically require '/sse' suffix for Server-Sent Events. "
+                         f"Consider using: {endpoint.rstrip('/')}/sse")
+        
         self.endpoint = endpoint
         self.timeout = timeout
         self.max_retries = max_retries

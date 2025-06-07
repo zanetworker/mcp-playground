@@ -922,8 +922,13 @@ with st.sidebar:
     mcp_endpoint = st.text_input(
         "MCP Endpoint URL",
         value=st.session_state.mcp_endpoint,
-        help="Enter the full URL for the MCP SSE server."
+        help="⚠️ IMPORTANT: URL must end with /sse for Server-Sent Events. Example: http://localhost:8000/sse",
+        placeholder="http://localhost:8000/sse"
     )
+    
+    # Add visual warning if URL doesn't end with /sse
+    if mcp_endpoint and not mcp_endpoint.endswith('/sse'):
+        st.warning("⚠️ URL should end with `/sse` for proper SSE communication. Example: `http://localhost:8000/sse`")
     # Auto-disconnect if endpoint changes while connected
     if st.session_state.mcp_endpoint != mcp_endpoint and st.session_state.connected:
         disconnect_from_server()
@@ -969,7 +974,7 @@ with st.sidebar:
             "OpenRouter API Key",
             type="password",
             value=st.session_state.api_keys["openrouter"],
-            help="Get your API key from openrouter.ai"
+            help="Get your API key from openrouter.ai, or set OPENROUTER_API_KEY in Env before starting this UI"
         )
         st.session_state.api_keys["openrouter"] = api_key
         

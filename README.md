@@ -20,6 +20,9 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+> **🚨 IMPORTANT:** When connecting to MCP servers, always use URLs ending with `/sse`
+> Example: `http://localhost:8000/sse` (not `http://localhost:8000`)
+
 ### Environment Variables
 
 For convenience, you can set API keys and OpenRouter configuration via environment variables:
@@ -45,6 +48,8 @@ This client provides a simple interface for:
 - Integrating with LLMs (OpenAI, Anthropic, Ollama) for AI-driven tool selection
 - Testing tools interactively through a Streamlit UI
 
+> **⚠️ Important:** MCP server URLs must end with `/sse` for Server-Sent Events communication. For example: `http://localhost:8000/sse`
+
 ## Core Features
 
 ### 1. Simple MCP Client
@@ -57,8 +62,9 @@ from mcp_sse_client import MCPClient
 
 async def main():
     # Connect to an MCP endpoint with optional timeout and retry settings
+    # IMPORTANT: URL must end with /sse for Server-Sent Events
     client = MCPClient(
-        "http://localhost:8000/sse",
+        "http://localhost:8000/sse",  # Note the /sse suffix!
         timeout=30.0,      # Connection timeout in seconds
         max_retries=3      # Maximum retry attempts
     )
@@ -110,7 +116,7 @@ if result["tool_call"]:
 The package includes a powerful CLI tool for interactive testing and analysis:
 
 ```bash
-# Run the CLI tool
+# Run the CLI tool (note the /sse suffix in the endpoint URL)
 python -m mcp_sse_client.examples.llm_example --provider openai --endpoint http://localhost:8000/sse
 ```
 
@@ -243,9 +249,20 @@ client = MCPClient(endpoint, timeout=30.0, max_retries=3)
 ```
 
 **Parameters:**
-- `endpoint`: The MCP endpoint URL (must be http or https)
+- `endpoint`: The MCP endpoint URL (must be http or https and end with `/sse`)
 - `timeout`: Connection timeout in seconds (default: 30.0)
 - `max_retries`: Maximum number of retry attempts (default: 3)
+
+**⚠️ URL Requirements:**
+- The endpoint URL **must** end with `/sse` for Server-Sent Events communication
+- Examples of correct URLs:
+  - `http://localhost:8000/sse`
+  - `https://my-mcp-server.com/sse`
+  - `http://192.168.1.100:3000/sse`
+- Examples of incorrect URLs:
+  - `http://localhost:8000` ❌ (missing `/sse`)
+  - `http://localhost:8000/` ❌ (missing `sse`)
+  - `http://localhost:8000/api` ❌ (wrong endpoint)
 
 #### Methods
 

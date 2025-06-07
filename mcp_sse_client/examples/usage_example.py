@@ -13,8 +13,9 @@ async def main():
     print("Starting MCPClient example...")
     try:
         # Initialize the client
+        # IMPORTANT: URL must end with /sse for Server-Sent Events
         print("Initializing client...")
-        client = MCPClient("http://localhost:8001/sse")
+        client = MCPClient("http://localhost:8001/sse")  # Note the /sse suffix!
         
         # List available tools
         print("Listing available tools...")
