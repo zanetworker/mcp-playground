@@ -23,6 +23,13 @@ class AnthropicBridge(LLMBridge):
         super().__init__(mcp_client)
         self.llm_client = anthropic.Anthropic(api_key=api_key)
         self.model = model
+        
+        # Store provider info for metadata
+        self.provider_info = {
+            "provider": "anthropic",
+            "model": model,
+            "base_url": "https://api.anthropic.com"
+        }
     
     async def format_tools(self, tools: List[ToolDef]) -> List[Dict[str, Any]]:
         """Format tools for Anthropic.

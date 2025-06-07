@@ -105,8 +105,14 @@ class LLMBridge(abc.ABC):
             conversation_history: Previous conversation messages (optional)
             
         Returns:
-            Dictionary containing the LLM response, tool call, and tool result
+            Enhanced dictionary containing comprehensive response data
         """
+        import time
+        from datetime import datetime
+        
+        start_time = time.time()
+        processing_steps = []
+        
         # 1. Fetch tools if not already fetched
         if self.tools is None:
             await self.fetch_tools()
@@ -115,30 +121,71 @@ class LLMBridge(abc.ABC):
         formatted_tools = await self.format_tools(self.tools)
         
         # 3. Submit query to LLM
-        llm_response = await self.submit_query(query, formatted_tools, conversation_history)
+        step_start = time.time()
+        initial_llm_response = await self.submit_query(query, formatted_tools, conversation_history)
+        processing_steps.append({
+            "step": "initial_query",
+            "timestamp": datetime.now().isoformat(),
+            "duration": time.time() - step_start,
+            "data": "Initial LLM query submitted"
+        })
         
         # 4. Parse tool calls from LLM response
-        tool_call = await self.parse_tool_call(llm_response)
+        tool_call = await self.parse_tool_call(initial_llm_response)
         
+        # Enhanced result structure
         result = {
-            "llm_response": llm_response,
+            "initial_llm_response": initial_llm_response,
+            "final_llm_response": initial_llm_response,  # Will be updated if tools are used
+            "raw_initial_response": initial_llm_response,
+            "raw_final_response": initial_llm_response,  # Will be updated if tools are used
             "tool_call": tool_call,
-            "tool_result": None
+            "tool_result": None,
+            "processing_steps": processing_steps,
+            "metadata": {
+                "provider": getattr(self, 'provider_info', {}).get('provider', 'unknown'),
+                "model": getattr(self, 'provider_info', {}).get('model', getattr(self, 'model', 'unknown')),
+                "base_url": getattr(self, 'provider_info', {}).get('base_url', 'unknown'),
+                "has_tools": bool(self.tools),
+                "execution_time": None  # Will be set at the end
+            }
         }
         
         # 5. Execute tool if needed
         if tool_call:
             tool_name = tool_call.get("name")
             kwargs = tool_call.get("parameters", {})
+            
+            step_start = time.time()
             tool_result = await self.execute_tool(tool_name, kwargs)
+            processing_steps.append({
+                "step": "tool_execution",
+                "timestamp": datetime.now().isoformat(),
+                "duration": time.time() - step_start,
+                "data": f"Executed tool: {tool_name}"
+            })
+            
             result["tool_result"] = tool_result
             
             # 6. Send tool result back to LLM for processing
             if tool_result.error_code == 0:  # Only if tool succeeded
+                step_start = time.time()
                 final_response = await self.process_tool_result(
                     query, tool_call, tool_result, conversation_history
                 )
-                result["llm_response"] = final_response
+                processing_steps.append({
+                    "step": "final_processing",
+                    "timestamp": datetime.now().isoformat(),
+                    "duration": time.time() - step_start,
+                    "data": "Final LLM processing with tool results"
+                })
+                
+                result["final_llm_response"] = final_response
+                result["raw_final_response"] = final_response
+        
+        # Update metadata
+        result["metadata"]["execution_time"] = time.time() - start_time
+        result["processing_steps"] = processing_steps
         
         return result
     

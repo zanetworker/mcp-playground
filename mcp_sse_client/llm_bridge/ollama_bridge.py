@@ -28,9 +28,17 @@ class OllamaBridge(LLMBridge):
         """
         super().__init__(mcp_client)
         # Initialize Ollama client, optionally specifying the host
-        self.llm_client = ollama.AsyncClient(host=host) 
+        self.llm_client = ollama.AsyncClient(host=host)
         self.model = model
         self.host = host # Store host for potential display/debugging
+        
+        # Store provider info for metadata
+        self.provider_info = {
+            "provider": "ollama",
+            "model": model,
+            "base_url": host or "http://localhost:11434"
+        }
+        
         print(f"Ollama Bridge initialized. Model: {self.model}, Host: {self.host or 'default'}")
 
     async def format_tools(self, tools: List[ToolDef]) -> List[Dict[str, Any]]:

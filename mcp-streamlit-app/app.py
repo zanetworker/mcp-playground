@@ -440,11 +440,12 @@ def disconnect_from_server():
     st.success("✅ Disconnected from server")
 
 # --- Response Parsing Helper ---
-def extract_content_from_llm_response(llm_response):
+def extract_content_from_llm_response(llm_response, response_stage="final"):
     """Extract clean text content from different LLM provider response formats.
     
     Args:
         llm_response: Response object from OpenAI, Anthropic, Ollama, or dict
+        response_stage: "initial" or "final" to handle different processing stages
         
     Returns:
         str: Clean text content extracted from the response (never None)
@@ -603,22 +604,40 @@ async def process_user_message_async(user_input):
         try:
             result = await st.session_state.llm_bridge.process_query(user_input, st.session_state.messages)
             
-            # Format the response nicely
+            # Handle enhanced response structure for tools mode
             if isinstance(result, dict):
-                llm_response = result.get("llm_response", {})
+                # Extract responses from enhanced structure
+                final_llm_response = result.get("final_llm_response", {})
                 tool_call = result.get("tool_call")
                 tool_result = result.get("tool_result")
                 
-                # Extract the main message content using unified parser
-                content = extract_content_from_llm_response(llm_response)
+                # Extract the final LLM content
+                final_content = extract_content_from_llm_response(final_llm_response, "final")
+                
+                # Store enhanced response data for UI display
+                enhanced_response_data = {
+                    "final_llm_content": final_content,
+                    "initial_llm_response": result.get("initial_llm_response", {}),
+                    "final_llm_response": final_llm_response,
+                    "raw_initial_response": result.get("raw_initial_response", {}),
+                    "raw_final_response": result.get("raw_final_response", {}),
+                    "tool_call": tool_call,
+                    "tool_result": tool_result,
+                    "processing_steps": result.get("processing_steps", []),
+                    "metadata": result.get("metadata", {}),
+                    "has_tools": hasattr(st.session_state.llm_bridge, 'tools') and st.session_state.llm_bridge.tools
+                }
+                
+                # Store in session state for the UI to access
+                st.session_state.last_response_data = enhanced_response_data
                 
                 response_parts = []
                 
                 # Only add content if it's not a generic "no content" message and we have a tool result
                 if tool_call and tool_result:
                     # If we have a tool result, prioritize that over generic "no content" messages
-                    if not content.startswith("No content received from"):
-                        response_parts.append(content)
+                    if final_content and not final_content.startswith("No content received from"):
+                        response_parts.append(final_content)
                     
                     tool_name = tool_call.get('name', 'Unknown')
                     if tool_result.error_code == 0:
@@ -630,10 +649,11 @@ async def process_user_message_async(user_input):
                         response_parts.append(f"**Error:** {tool_result.content}")
                 else:
                     # No tool call, just return the content
-                    response_parts.append(content)
+                    response_parts.append(final_content)
                 
                 return "\n".join(response_parts)
             else:
+                # Handle legacy response format
                 return extract_content_from_llm_response(result)
                 
         except Exception as e:
@@ -654,45 +674,59 @@ async def process_user_message_async(user_input):
             
             result = await st.session_state.llm_bridge.process_query(user_input, st.session_state.messages)
             
-            # Format the response nicely
+            # Handle enhanced response structure
             if isinstance(result, dict):
-                llm_response = result.get("llm_response", {})
+                # Extract responses from enhanced structure
+                initial_llm_response = result.get("initial_llm_response", {})
+                final_llm_response = result.get("final_llm_response", {})
+                raw_initial_response = result.get("raw_initial_response", {})
+                raw_final_response = result.get("raw_final_response", {})
                 tool_call = result.get("tool_call")
                 tool_result = result.get("tool_result")
+                processing_steps = result.get("processing_steps", [])
+                metadata = result.get("metadata", {})
                 
-                # Extract the main message content using unified parser
-                content = extract_content_from_llm_response(llm_response)
+                # Extract the final LLM content (this is what the user should see)
+                final_content = extract_content_from_llm_response(final_llm_response, "final")
                 
-                # Debug logging to understand what we're getting
-                print(f"DEBUG: LLM Response Type: {type(llm_response)}")
-                print(f"DEBUG: LLM Response Keys (if dict): {list(llm_response.keys()) if isinstance(llm_response, dict) else 'Not a dict'}")
-                print(f"DEBUG: LLM Response Content: {llm_response}")
-                print(f"DEBUG: Extracted Content: {content}")
-                print(f"DEBUG: Content starts with 'No content': {content.startswith('No content received from') if content else 'Content is None'}")
+                # Debug logging for enhanced structure
+                print(f"DEBUG: Enhanced Response Structure:")
+                print(f"  - Initial Response Type: {type(initial_llm_response)}")
+                print(f"  - Final Response Type: {type(final_llm_response)}")
+                print(f"  - Final Content: {final_content}")
+                print(f"  - Tool Call: {tool_call}")
+                print(f"  - Tool Result: {tool_result}")
+                print(f"  - Processing Steps: {len(processing_steps)}")
+                print(f"  - Metadata: {metadata}")
                 
-                response_parts = []
-                
-                # Store the response components for structured display
-                response_data = {
-                    "llm_response": content,
+                # Store comprehensive response data for UI display
+                enhanced_response_data = {
+                    "final_llm_content": final_content,
+                    "initial_llm_response": initial_llm_response,
+                    "final_llm_response": final_llm_response,
+                    "raw_initial_response": raw_initial_response,
+                    "raw_final_response": raw_final_response,
                     "tool_call": tool_call,
                     "tool_result": tool_result,
+                    "processing_steps": processing_steps,
+                    "metadata": metadata,
                     "has_tools": hasattr(st.session_state.llm_bridge, 'tools') and st.session_state.llm_bridge.tools
                 }
                 
                 # Store in session state for the UI to access
-                st.session_state.last_response_data = response_data
+                st.session_state.last_response_data = enhanced_response_data
                 
-                # Return the actual LLM content, with better fallback handling
-                if content and not content.startswith("No content received from") and not content.startswith("Error extracting content"):
-                    return content
+                # Return the final LLM content (this is the key fix!)
+                if final_content and not final_content.startswith("No content received from") and not final_content.startswith("Error extracting content"):
+                    return final_content
                 else:
-                    # If we have tool results but no proper LLM response, create a meaningful fallback
+                    # Fallback handling for edge cases
                     if tool_call and tool_result and tool_result.error_code == 0:
                         return f"I successfully executed the {tool_call.get('name', 'requested')} tool and processed the results. Please check the details below."
                     else:
                         return "I processed your request using the available tools."
             else:
+                # Handle legacy response format
                 return extract_content_from_llm_response(result)
                 
         except Exception as e:
@@ -1162,12 +1196,14 @@ else:
                 # Display the LLM response
                 st.write(result)
                 
-                # Check if we have structured response data from the last processing
+                # Check if we have enhanced response data from the last processing
                 if hasattr(st.session_state, 'last_response_data') and st.session_state.last_response_data:
                     response_data = st.session_state.last_response_data
                     tool_call = response_data.get("tool_call")
                     tool_result = response_data.get("tool_result")
                     has_tools = response_data.get("has_tools", False)
+                    processing_steps = response_data.get("processing_steps", [])
+                    metadata = response_data.get("metadata", {})
                     
                     # Display tool usage information
                     if tool_call and tool_result:
@@ -1175,17 +1211,105 @@ else:
                         if tool_result.error_code == 0:
                             # Show success message
                             st.success(f"✅ Auto mode: LLM successfully used MCP tool '{tool_name}' and processed the results")
-                            
-                            # Show raw tool data in expander
-                            with st.expander("🔧 View Raw Tool Data", expanded=False):
-                                formatted_result = format_tool_result(tool_result.content)
-                                st.code(formatted_result, language="json")
                         else:
                             st.error(f"❌ Auto mode: MCP tool '{tool_name}' failed")
                             st.error(f"**Error:** {tool_result.content}")
                     else:
                         if has_tools:
                             st.info("ℹ️ Auto mode: LLM chose not to use any MCP tools for this query")
+                    
+                    # Enhanced Raw LLM Response Data Expander
+                    with st.expander("🔍 View Raw LLM Response Data", expanded=False):
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.subheader("Initial LLM Response")
+                            if response_data.get("raw_initial_response"):
+                                # Convert response object to dict for JSON display
+                                try:
+                                    if hasattr(response_data["raw_initial_response"], '__dict__'):
+                                        initial_dict = vars(response_data["raw_initial_response"])
+                                    else:
+                                        initial_dict = response_data["raw_initial_response"]
+                                    st.json(initial_dict)
+                                except Exception as e:
+                                    st.code(str(response_data["raw_initial_response"]))
+                            else:
+                                st.info("No initial response data")
+                        
+                        with col2:
+                            st.subheader("Final LLM Response")
+                            if response_data.get("raw_final_response"):
+                                # Convert response object to dict for JSON display
+                                try:
+                                    if hasattr(response_data["raw_final_response"], '__dict__'):
+                                        final_dict = vars(response_data["raw_final_response"])
+                                    else:
+                                        final_dict = response_data["raw_final_response"]
+                                    st.json(final_dict)
+                                except Exception as e:
+                                    st.code(str(response_data["raw_final_response"]))
+                            else:
+                                st.info("No final response data")
+                        
+                        # Response Metadata
+                        if metadata:
+                            st.subheader("Response Metadata")
+                            st.json(metadata)
+                    
+                    # Tool Execution Details Expander
+                    if tool_call and tool_result:
+                        with st.expander("🔧 View Tool Execution Details", expanded=False):
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                st.subheader("Tool Call")
+                                st.json(tool_call)
+                            
+                            with col2:
+                                st.subheader("Tool Result")
+                                st.write(f"**Error Code:** {tool_result.error_code}")
+                                if tool_result.error_code == 0:
+                                    st.success("✅ Tool executed successfully")
+                                else:
+                                    st.error("❌ Tool execution failed")
+                            
+                            st.subheader("Tool Output")
+                            formatted_result = format_tool_result(tool_result.content)
+                            st.code(formatted_result, language="json")
+                    
+                    # Debug Information Expander
+                    with st.expander("🐛 Debug Information", expanded=False):
+                        if processing_steps:
+                            st.subheader("Processing Steps Timeline")
+                            for i, step in enumerate(processing_steps):
+                                with st.container():
+                                    st.write(f"**Step {i+1}: {step.get('step', 'Unknown').replace('_', ' ').title()}**")
+                                    col1, col2 = st.columns(2)
+                                    with col1:
+                                        if step.get('timestamp'):
+                                            st.write(f"⏰ {step['timestamp']}")
+                                    with col2:
+                                        if step.get('duration'):
+                                            st.write(f"⚡ {step['duration']:.3f}s")
+                                    if step.get('data'):
+                                        st.write(f"📝 {step['data']}")
+                                    st.divider()
+                        
+                        st.subheader("Session Debug Info")
+                        debug_info = {
+                            "Provider": metadata.get('provider', 'Unknown'),
+                            "Model": metadata.get('model', 'Unknown'),
+                            "Base URL": metadata.get('base_url', 'Unknown'),
+                            "Has Tools": metadata.get('has_tools', 'Unknown'),
+                            "Total Execution Time": f"{metadata.get('execution_time', 0):.3f}s" if metadata.get('execution_time') else 'Unknown'
+                        }
+                        st.json(debug_info)
+                        
+                        # Show final LLM content for debugging
+                        if response_data.get("final_llm_content"):
+                            st.subheader("Final LLM Content (Displayed to User)")
+                            st.code(response_data["final_llm_content"])
                     
                     # Clear the response data
                     st.session_state.last_response_data = None

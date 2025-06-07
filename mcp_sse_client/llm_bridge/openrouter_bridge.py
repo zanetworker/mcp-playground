@@ -36,6 +36,13 @@ class OpenRouterBridge(LLMBridge):
         
         # Initialize OpenRouter client for model fetching
         self.openrouter_client = OpenRouterClient(api_key, site_url, site_name)
+        
+        # Store provider info for metadata
+        self.provider_info = {
+            "provider": "openrouter",
+            "model": model,
+            "base_url": "https://openrouter.ai/api/v1"
+        }
     
     async def format_tools(self, tools: List[ToolDef]) -> List[Dict[str, Any]]:
         """Format tools for OpenRouter (uses OpenAI format).
