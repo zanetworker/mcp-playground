@@ -29,6 +29,8 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+![alt text](image.png)
+
 > **🚨 IMPORTANT:** When connecting to MCP servers, always use URLs ending with `/sse`
 > Example: `http://localhost:8000/sse` (not `http://localhost:8000`)
 
@@ -47,7 +49,6 @@ export OPENROUTER_SITE_URL="https://your-site.com"
 export OPENROUTER_SITE_NAME="Your App Name"
 ```
 
-![MCP Streamlit App with SSE URL Highlighting](mcp-streamlit-app-screenshot.png)
 *The Streamlit interface prominently highlights the `/sse` URL requirement with helpful tooltips and validation.*
 
 ## 🛠️ Supported Protocols
@@ -337,13 +338,6 @@ This typically occurs with asyncio compatibility issues. The Streamlit app handl
 - **Advanced Caching** - Smart caching for tool definitions and results
 - **Monitoring Dashboard** - Real-time monitoring of MCP connections
 - **Plugin System** - Extensible architecture for custom protocols
-
-### Protocol Support Timeline
-
-- ✅ **Q4 2024**: Server-Sent Events (SSE) - Complete
-- 🔄 **Q1 2025**: Streamable HTTP - In Development
-- 📋 **Q2 2025**: WebSocket Support - Planned
-- 📋 **Q3 2025**: gRPC Streaming - Planned
 
 ## 🤝 Development
 
