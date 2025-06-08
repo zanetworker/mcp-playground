@@ -207,7 +207,7 @@ async def main():
         
         # Extract and show LLM's reasoning
         # Need to handle different response structures
-        llm_response = result["llm_response"]
+        llm_response = result["initial_llm_response"]
         reasoning = "[Could not extract reasoning]" # Default
         if provider == "openai":
             if hasattr(llm_response.choices[0].message, 'content') and llm_response.choices[0].message.content:
