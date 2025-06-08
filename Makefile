@@ -26,11 +26,11 @@ dev:
 
 # Run linting
 lint:
-	pylint mcp_sse_client tests
+	pylint mcp_playground tests
 
 # Format code
 format:
-	black mcp_sse_client tests
+	black mcp_playground tests
 
 # Build package
 build: clean

@@ -23,12 +23,12 @@ import os
 import json
 import textwrap
 import argparse  # Import argparse
-from mcp_sse_client import MCPClient
+from mcp_playground import MCPClient
 # Import all bridges
-from mcp_sse_client.llm_bridge import OpenAIBridge, AnthropicBridge, OllamaBridge 
-from mcp_sse_client.format_converters import to_openai_format, to_anthropic_format
+from mcp_playground.llm_bridge import OpenAIBridge, AnthropicBridge, OllamaBridge
+from mcp_playground.format_converters import to_openai_format, to_anthropic_format
 # Import model definitions
-from mcp_sse_client.llm_bridge.models import (
+from mcp_playground.llm_bridge.models import (
     OPENAI_MODELS, DEFAULT_OPENAI_MODEL, 
     ANTHROPIC_MODELS, DEFAULT_ANTHROPIC_MODEL,
     DEFAULT_OLLAMA_MODEL # Import Ollama default

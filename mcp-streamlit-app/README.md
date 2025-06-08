@@ -27,7 +27,7 @@ A Streamlit application for interactively testing MCP (Model Context Protocol) s
 
 ## Installation
 
-1. Ensure you are in the root directory of the `mcp-sse-client-python` project.
+1. Ensure you are in the root directory of the `mcp-playground` project.
 2. Navigate to the app directory:
    ```bash
    cd mcp-streamlit-app
@@ -73,4 +73,4 @@ streamlit run app.py
 
 ## License
 
-This application is part of the `mcp-sse-client-python` project, licensed under the MIT License.
+This application is part of the `mcp-playground` project, licensed under the MIT License.

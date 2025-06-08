@@ -11,14 +11,14 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
     requirements = [line.strip() for line in fh if not line.startswith("#")]
 
 setup(
-    name="mcp_sse_client",
-    version="0.1.0",
+    name="mcp_playground",
+    version="0.2.0",
     author="zanetworker",
     author_email="",  # Add author email if available
-    description="A Python client for interacting with Model Context Protocol (MCP) endpoints using SSE",
+    description="A comprehensive Python toolkit for interacting with remote Model Context Protocol (MCP) endpoints",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/zanetworker/mcp-sse-client-python",
+    url="https://github.com/zanetworker/mcp-playground",
     packages=find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",

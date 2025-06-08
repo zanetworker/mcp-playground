@@ -7,7 +7,7 @@ list available tools, and invoke a tool with parameters.
 
 import asyncio
 import sys
-from mcp_sse_client import MCPClient
+from mcp_playground import MCPClient
 
 async def main():
     print("Starting MCPClient example...")

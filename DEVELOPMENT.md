@@ -6,8 +6,8 @@ This document provides information for developers who want to contribute to the 
 
 ```bash
 # Clone the repository
-git clone https://github.com/zanetworker/mcp-sse-client-python.git
-cd mcp-sse-client-python
+git clone https://github.com/zanetworker/mcp-playground.git
+cd mcp-playground
 
 # Install development dependencies
 make dev

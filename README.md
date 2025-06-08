@@ -1,15 +1,24 @@
-# MCP SSE Client Python
+# MCP Playground
 
-A Python client for interacting with Model Context Protocol (MCP) endpoints using Server-Sent Events (SSE).
+A comprehensive Python toolkit for interacting with remote Model Context Protocol (MCP) endpoints. Currently supports Server-Sent Events (SSE) with planned support for Streamable HTTP protocols.
 
-## Quick Start
+## 🎯 Project Focus
+
+**MCP Playground** is specifically designed for **remote MCP client capabilities**, providing robust tools for connecting to and interacting with MCP servers over network protocols:
+
+- **✅ Server-Sent Events (SSE)** - Full implementation with real-time streaming
+- **🔄 Streamable HTTP** - Planned for future releases
+- **🤖 LLM Integration** - AI-driven tool selection and execution
+- **🧪 Interactive Testing** - Comprehensive testing environments
+
+## 🚀 Quick Start
 
 Get up and running in minutes:
 
 ```bash
 # Clone the repository
-git clone https://github.com/zanetworker/mcp-sse-client-python.git
-cd mcp-sse-client-python
+git clone https://github.com/zanetworker/mcp-playground.git
+cd mcp-playground
 
 # Install the package
 pip install -e .
@@ -39,30 +48,40 @@ export OPENROUTER_SITE_NAME="Your App Name"
 ```
 
 ![MCP Streamlit App with SSE URL Highlighting](mcp-streamlit-app-screenshot.png)
-*The updated Streamlit interface now prominently highlights the `/sse` URL requirement with helpful tooltips and validation.*
+*The Streamlit interface prominently highlights the `/sse` URL requirement with helpful tooltips and validation.*
 
-## What is MCP SSE Client?
+## 🛠️ Supported Protocols
 
-This client provides a simple interface for:
-- Connecting to MCP endpoints via Server-Sent Events
-- Discovering and invoking tools with parameters
-- Integrating with LLMs (OpenAI, Anthropic, Ollama) for AI-driven tool selection
-- Testing tools interactively through a Streamlit UI
+### Current Support
+- **Server-Sent Events (SSE)** - Real-time streaming communication with MCP servers
+- **HTTP/HTTPS** - Standard request-response patterns
 
-> **⚠️ Important:** MCP server URLs must end with `/sse` for Server-Sent Events communication. For example: `http://localhost:8000/sse`
+### Planned Support
+- **Streamable HTTP** - Enhanced HTTP streaming capabilities
+- **WebSocket** - Bidirectional real-time communication
+- **gRPC Streaming** - High-performance streaming protocol
 
-## Core Features
+## 🤖 LLM Provider Support
 
-### 1. Simple MCP Client
+MCP Playground integrates with multiple LLM providers for intelligent tool selection:
 
-Easily connect to any MCP endpoint and interact with available tools:
+- **OpenAI**: GPT-4o, GPT-4, GPT-3.5-Turbo
+- **Anthropic**: Claude 3 Opus, Claude 3 Sonnet, Claude 3 Haiku
+- **Ollama**: Llama 3, Mistral, and other locally hosted models
+- **OpenRouter**: Access to 100+ models through a unified API
+
+## 📋 Core Features
+
+### 1. Remote MCP Client
+
+Easily connect to any remote MCP endpoint and interact with available tools:
 
 ```python
 import asyncio
-from mcp_sse_client import MCPClient
+from mcp_playground import MCPClient
 
 async def main():
-    # Connect to an MCP endpoint with optional timeout and retry settings
+    # Connect to a remote MCP endpoint with optional timeout and retry settings
     # IMPORTANT: URL must end with /sse for Server-Sent Events
     client = MCPClient(
         "http://localhost:8000/sse",  # Note the /sse suffix!
@@ -91,7 +110,7 @@ Let AI choose the right tool based on natural language queries:
 
 ```python
 import os
-from mcp_sse_client import MCPClient, OpenAIBridge
+from mcp_playground import MCPClient, OpenAIBridge
 
 # Connect to MCP endpoint and create an LLM bridge
 client = MCPClient("http://localhost:8000/sse")
@@ -118,7 +137,7 @@ The package includes a powerful CLI tool for interactive testing and analysis:
 
 ```bash
 # Run the CLI tool (note the /sse suffix in the endpoint URL)
-python -m mcp_sse_client.examples.llm_example --provider openai --endpoint http://localhost:8000/sse
+python -m mcp_playground.examples.llm_example --provider openai --endpoint http://localhost:8000/sse
 ```
 
 **Configuration Options:**
@@ -131,82 +150,20 @@ usage: llm_example.py [-h] [--provider {openai,anthropic,ollama}]
                      [--anthropic-key ANTHROPIC_KEY]
 ```
 
-**Example Output:**
-```
-Starting MCP-LLM Integration Example...
-Connecting to MCP server at: http://localhost:8000/sse
-Using OpenAI LLM bridge with model: gpt-4o
-Fetching tools from server...
+### 4. Interactive Testing Environment
 
-=== Available Tools Summary ===
-3 tools available:
-  1. calculator: Perform basic arithmetic operations
-     Required parameters:
-       - x (number): First operand
-       - y (number): Second operand
-       - operation (string): Operation to perform (add, subtract, multiply, divide)
-
-  2. weather: Get current weather for a location
-     Required parameters:
-       - location (string): City or location name
-
-  3. convert_document: Convert a document to text
-     Required parameters:
-       - source (string): URL or file path to the document
-     Optional parameters:
-       - enable_ocr (boolean): Whether to use OCR for scanned documents
-
-Entering interactive mode. Type 'quit' to exit.
-
-Enter your query: What's the weather in Berlin?
-
-=== User Query ===
-What's the weather in Berlin?
-Processing query...
-
-=== LLM Reasoning ===
-I need to check the weather in Berlin. Looking at the available tools, there's a "weather" tool that can get the current weather for a location. I'll use this tool with "Berlin" as the location parameter.
-
-=== Tool Selection Decision ===
-Selected: weather
-  Description: Get current weather for a location
-
-  Parameters provided:
-    - location (string, required): Berlin
-      Description: City or location name
-
-  Query to Tool Mapping:
-    Query: "What's the weather in Berlin?"
-    Tool: weather
-    Key parameters: location
-
-=== Tool Execution Result ===
-Success: True
-Content: {"temperature": 18.5, "conditions": "Partly cloudy", "humidity": 65, "wind_speed": 12}
-```
-
-### 4. Interactive Testing UI
-
-The included Streamlit app provides a comprehensive testing interface with enhanced features:
+The included Streamlit app provides a comprehensive testing interface:
 
 **Key Features:**
 - **Multiple Chat Modes:**
   - **Auto Mode**: LLM automatically decides when to use tools
   - **Chat Mode**: Direct conversation without MCP tools
   - **Tools Mode**: Always attempt to use MCP tools
-- **Multi-LLM Support**: OpenAI, Anthropic, and Ollama integration
+- **Multi-LLM Support**: OpenAI, Anthropic, Ollama, and OpenRouter integration
 - **Dynamic Configuration**: Connect to any MCP endpoint with real-time status
 - **Tool Discovery**: Automatic detection and display of available tools
-- **Beautiful Response Formatting**: Special formatting for structured data (e.g., JIRA issues)
+- **Beautiful Response Formatting**: Special formatting for structured data
 - **Error Handling**: Robust connection management with clear error messages
-- **Ollama Integration**: Automatic model detection and selection
-
-**Enhanced UI Features:**
-- Real-time connection status indicators
-- Expandable tool parameter documentation
-- Chat history with proper message formatting
-- Configurable timeouts and retry settings
-- Debug information for troubleshooting
 
 To run the Streamlit app:
 ```bash
@@ -215,33 +172,23 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-The app automatically handles event loop management for seamless operation in the Streamlit environment.
-
-## Installation
+## 📦 Installation
 
 ### From Source
 
 ```bash
-git clone https://github.com/zanetworker/mcp-sse-client-python.git
-cd mcp-sse-client-python
+git clone https://github.com/zanetworker/mcp-playground.git
+cd mcp-playground
 pip install -e .
 ```
 
 ### Using pip (once published)
 
 ```bash
-pip install mcp-sse-client
+pip install mcp-playground
 ```
 
-## Supported LLM Providers
-
-The client supports multiple LLM providers for AI-driven tool selection:
-
-- **OpenAI**: GPT-4o, GPT-4, GPT-3.5-Turbo
-- **Anthropic**: Claude 3 Opus, Claude 3 Sonnet, Claude 3 Haiku
-- **Ollama**: Llama 3, Mistral, and other locally hosted models
-
-## API Reference
+## 🔧 API Reference
 
 ### MCPClient
 
@@ -260,10 +207,6 @@ client = MCPClient(endpoint, timeout=30.0, max_retries=3)
   - `http://localhost:8000/sse`
   - `https://my-mcp-server.com/sse`
   - `http://192.168.1.100:3000/sse`
-- Examples of incorrect URLs:
-  - `http://localhost:8000` ❌ (missing `/sse`)
-  - `http://localhost:8000/` ❌ (missing `sse`)
-  - `http://localhost:8000/api` ❌ (wrong endpoint)
 
 #### Methods
 
@@ -271,45 +214,24 @@ client = MCPClient(endpoint, timeout=30.0, max_retries=3)
 
 Lists available tools from the MCP endpoint.
 
-**Raises:**
-- `MCPConnectionError`: If connection fails after all retries
-- `MCPTimeoutError`: If operation times out
-
 ##### `async invoke_tool(tool_name: str, kwargs: Dict[str, Any]) -> ToolInvocationResult`
 
 Invokes a specific tool with parameters.
-
-**Parameters:**
-- `tool_name`: Name of the tool to invoke
-- `kwargs`: Dictionary of parameters to pass to the tool
-
-**Returns:**
-- `ToolInvocationResult` with `content` (str) and `error_code` (int, 0 for success)
-
-**Raises:**
-- `MCPConnectionError`: If connection fails after all retries
-- `MCPTimeoutError`: If operation times out
 
 ##### `async check_connection() -> bool`
 
 Check if the MCP endpoint is reachable.
 
-**Returns:**
-- `True` if connection is successful, `False` otherwise
-
 ##### `get_endpoint_info() -> Dict[str, Any]`
 
 Get information about the configured endpoint.
-
-**Returns:**
-- Dictionary with endpoint information including URL components, timeout, and retry settings
 
 ### Error Handling
 
 The client includes robust error handling with specific exception types:
 
 ```python
-from mcp_sse_client import MCPClient, MCPConnectionError, MCPTimeoutError
+from mcp_playground import MCPClient, MCPConnectionError, MCPTimeoutError
 
 try:
     client = MCPClient("http://localhost:8000/sse")
@@ -320,37 +242,29 @@ except MCPTimeoutError as e:
     print(f"Operation timed out: {e}")
 ```
 
-**Exception Types:**
-- `MCPConnectionError`: Raised when connection fails after all retry attempts
-- `MCPTimeoutError`: Raised when operations exceed the configured timeout
-
 ### LLM Bridges
 
 #### OpenAIBridge
-
 ```python
 bridge = OpenAIBridge(mcp_client, api_key, model="gpt-4o")
 ```
 
 #### AnthropicBridge
-
 ```python
 bridge = AnthropicBridge(mcp_client, api_key, model="claude-3-opus-20240229")
 ```
 
 #### OllamaBridge
-
 ```python
 bridge = OllamaBridge(mcp_client, model="llama3", host=None)
 ```
 
-#### Common Bridge Methods
+#### OpenRouterBridge
+```python
+bridge = OpenRouterBridge(mcp_client, api_key, model="anthropic/claude-3-opus")
+```
 
-##### `async process_query(query: str) -> Dict[str, Any]`
-
-Processes a user query through the LLM and executes any tool calls.
-
-## Advanced Features
+## 🔄 Advanced Features
 
 ### Retry Logic and Resilience
 
@@ -382,7 +296,7 @@ info = client.get_endpoint_info()
 print(f"Connected to: {info['hostname']}:{info['port']}")
 ```
 
-## Requirements
+## 📋 Requirements
 
 - Python 3.8+
 - `mcp>=0.1.0` (Model Context Protocol library)
@@ -392,7 +306,7 @@ print(f"Connected to: {info['hostname']}:{info['port']}")
 - `ollama>=0.1.7` (for Ollama integration)
 - `streamlit` (for the interactive test app)
 
-## Troubleshooting
+## 🐛 Troubleshooting
 
 ### Common Issues
 
@@ -402,7 +316,7 @@ This typically occurs with asyncio compatibility issues. The Streamlit app handl
 **Connection Timeouts:**
 - Increase the timeout parameter: `MCPClient(endpoint, timeout=60.0)`
 - Check if the MCP server is running and accessible
-- Verify the endpoint URL is correct
+- Verify the endpoint URL is correct and ends with `/sse`
 
 **Import Errors:**
 - Ensure all dependencies are installed: `pip install -e .`
@@ -413,10 +327,34 @@ This typically occurs with asyncio compatibility issues. The Streamlit app handl
 - Check model names match supported versions
 - For Ollama, ensure the service is running locally
 
-## Development
+## 🚀 Roadmap
+
+### Upcoming Features
+
+- **Streamable HTTP Support** - Enhanced HTTP streaming capabilities
+- **WebSocket Integration** - Real-time bidirectional communication
+- **Connection Pooling** - Improved performance for multiple connections
+- **Advanced Caching** - Smart caching for tool definitions and results
+- **Monitoring Dashboard** - Real-time monitoring of MCP connections
+- **Plugin System** - Extensible architecture for custom protocols
+
+### Protocol Support Timeline
+
+- ✅ **Q4 2024**: Server-Sent Events (SSE) - Complete
+- 🔄 **Q1 2025**: Streamable HTTP - In Development
+- 📋 **Q2 2025**: WebSocket Support - Planned
+- 📋 **Q3 2025**: gRPC Streaming - Planned
+
+## 🤝 Development
 
 For information on development setup, contributing guidelines, and available make commands, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
-## License
+## 📄 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🙏 Acknowledgments
+
+- Model Context Protocol (MCP) specification and community
+- OpenAI, Anthropic, and Ollama for LLM API access
+- Streamlit for the interactive testing framework

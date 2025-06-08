@@ -11,14 +11,14 @@ from typing import List, Dict, Any, Optional, Union
 # Add parent directory to path to import mcp_sse_client
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Import the MCP SSE client and model definitions
-from mcp_sse_client.client import MCPClient, MCPConnectionError, MCPTimeoutError
-from mcp_sse_client.llm_bridge.openai_bridge import OpenAIBridge
-from mcp_sse_client.llm_bridge.anthropic_bridge import AnthropicBridge
-from mcp_sse_client.llm_bridge.ollama_bridge import OllamaBridge
-from mcp_sse_client.llm_bridge.openrouter_bridge import OpenRouterBridge
-from mcp_sse_client.llm_bridge.openrouter_client import OpenRouterClient, format_model_display
-from mcp_sse_client.llm_bridge.models import (
+# Import the MCP Playground client and model definitions
+from mcp_playground.client import MCPClient, MCPConnectionError, MCPTimeoutError
+from mcp_playground.llm_bridge.openai_bridge import OpenAIBridge
+from mcp_playground.llm_bridge.anthropic_bridge import AnthropicBridge
+from mcp_playground.llm_bridge.ollama_bridge import OllamaBridge
+from mcp_playground.llm_bridge.openrouter_bridge import OpenRouterBridge
+from mcp_playground.llm_bridge.openrouter_client import OpenRouterClient, format_model_display
+from mcp_playground.llm_bridge.models import (
     OPENAI_MODELS, DEFAULT_OPENAI_MODEL,
     ANTHROPIC_MODELS, DEFAULT_ANTHROPIC_MODEL,
     DEFAULT_OLLAMA_MODEL
@@ -26,8 +26,8 @@ from mcp_sse_client.llm_bridge.models import (
 
 # Set page config
 st.set_page_config(
-    page_title="MCP Tool Tester",
-    page_icon="🛠️",
+    page_title="MCP Playground",
+    page_icon="🎮",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -892,10 +892,10 @@ def process_user_message(user_input):
 st.markdown("""
 <div style="text-align: center; margin-bottom: 2rem;">
     <h1 class="gradient-text" style="font-size: 3.5rem; font-weight: 700; margin-bottom: 0.5rem; letter-spacing: -0.02em;">
-        🛠️ MCP Tool Tester
+        🎮 MCP Playground
     </h1>
     <p style="color: var(--text-secondary); font-size: 1.2rem; margin: 0;">
-        Modern AI Tool Integration Platform
+        Quickly test and experiment with MCP servers. Connect your favorite tool-capable models, and off you go!
     </p>
     <div style="width: 100px; height: 3px; background: var(--accent-gradient); margin: 1rem auto; border-radius: 2px;"></div>
 </div>
@@ -1234,8 +1234,8 @@ st.markdown("---")
 if not st.session_state.connected and st.session_state.chat_mode != "chat":
     st.markdown("""
     <div class="welcome-card fade-in">
-        <h2>✨ Welcome to MCP Tool Tester</h2>
-        <p>Connect to an MCP server to unlock powerful AI tool integration, or switch to chat mode for direct LLM conversation.</p>
+        <h2>✨ Welcome to MCP Playground</h2>
+        <p>Your interactive playground for exploring MCP servers, testing tools, and experimenting with AI-driven integrations.</p>
         <div style="margin-top: 1.5rem; display: flex; justify-content: center; gap: 1rem; flex-wrap: wrap;">
             <div style="background: rgba(99, 102, 241, 0.1); border: 1px solid var(--accent-primary); border-radius: 0.5rem; padding: 0.75rem 1rem; color: var(--accent-primary);">
                 👈 Configure Connection

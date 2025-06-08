@@ -9,8 +9,8 @@ import os
 # Add the project root to the path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from mcp_sse_client.client import MCPClient
-from mcp_sse_client.llm_bridge.openrouter_bridge import OpenRouterBridge
+from mcp_playground.client import MCPClient
+from mcp_playground.llm_bridge.openrouter_bridge import OpenRouterBridge
 
 async def test_mcp_connection():
     """Test MCP connection and tool calling"""

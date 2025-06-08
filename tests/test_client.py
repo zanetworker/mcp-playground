@@ -5,7 +5,7 @@ Tests for the MCP SSE Client.
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 import asyncio
-from mcp_sse_client import MCPClient, ToolDef, ToolParameter, ToolInvocationResult
+from mcp_playground import MCPClient, ToolDef, ToolParameter, ToolInvocationResult
 
 
 class TestMCPClient(unittest.TestCase):
@@ -26,8 +26,8 @@ class TestMCPClient(unittest.TestCase):
         with self.assertRaises(ValueError):
             MCPClient("ftp://example.com/sse")
 
-    @patch("mcp_sse_client.client.sse_client")
-    @patch("mcp_sse_client.client.ClientSession")
+    @patch("mcp_playground.client.sse_client")
+    @patch("mcp_playground.client.ClientSession")
     def test_list_tools(self, mock_session_class, mock_sse_client):
         """Test listing tools from the MCP endpoint."""
         # Set up mocks
@@ -67,8 +67,8 @@ class TestMCPClient(unittest.TestCase):
         self.assertEqual(tools[0].parameters[0].parameter_type, "string")
         self.assertEqual(tools[0].parameters[0].description, "A test parameter")
 
-    @patch("mcp_sse_client.client.sse_client")
-    @patch("mcp_sse_client.client.ClientSession")
+    @patch("mcp_playground.client.sse_client")
+    @patch("mcp_playground.client.ClientSession")
     def test_invoke_tool(self, mock_session_class, mock_sse_client):
         """Test invoking a tool with parameters."""
         # Set up mocks
