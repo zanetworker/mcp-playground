@@ -206,7 +206,7 @@ class LLMBridge(abc.ABC):
         
         # Build conversation with tool result
         messages = conversation_history.copy() if conversation_history else []
-        messages.append({"role": "user", "content": original_query})
+        # Don't add original_query again since it's already in conversation_history
         
         # Add assistant's tool call
         messages.append({
@@ -232,3 +232,83 @@ class LLMBridge(abc.ABC):
         # Get LLM's final response (without tools this time)
         final_response = await self.submit_query_without_tools(messages)
         return final_response
+    
+    async def process_messages(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+        """Process a user query through the LLM and execute any tool calls.
+        
+        This method handles the full flow:
+        1. Fetch tools if not already fetched
+        2. Format tools for the LLM
+        3. Submit query to LLM
+        4. Parse tool calls from LLM response
+        5. Execute tool if needed
+        
+        Args:
+            messages: List of message dictionaries containing the conversation
+            
+        Returns:
+            Dictionary containing the LLM response, tool call, and tool result
+        """
+        # 1. Fetch tools if not already fetched
+        if self.tools is None:
+            await self.fetch_tools()
+        
+        # 2. Format tools for the LLM
+        formatted_tools = await self.format_tools(self.tools)
+        
+        # 3. Submit query to LLM
+        llm_response = await self.submit_messages(messages, formatted_tools)
+        
+        # 4. Parse tool calls from LLM response
+        tool_call = await self.parse_tool_call(llm_response)
+        
+        result = {
+            "llm_response": llm_response,
+            "tool_call": tool_call,
+            "tool_result": None
+        }
+        
+        # 5. Execute tool if needed
+        if tool_call:
+            tool_name = tool_call.get("name")
+            kwargs = tool_call.get("parameters", {})
+            tool_result = await self.execute_tool(tool_name, kwargs)
+            result["tool_result"] = tool_result
+            
+            # 6. Send tool result back to LLM for final processing
+            if tool_result.error_code == 0:  # Only if tool succeeded
+                # Extract the original query from the last user message
+                original_query = ""
+                for msg in reversed(messages):
+                    if msg.get("role") == "user":
+                        original_query = msg.get("content", "")
+                        break
+                
+                final_response = await self.process_tool_result(
+                    original_query, tool_call, tool_result, messages[:-1]  # Exclude the last user message
+                )
+                result["final_llm_response"] = final_response
+                result["raw_final_response"] = final_response
+            else:
+                # If tool failed, use the initial response
+                result["final_llm_response"] = llm_response
+                result["raw_final_response"] = llm_response
+        else:
+            # No tool call, use the initial response as final
+            result["final_llm_response"] = llm_response
+            result["raw_final_response"] = llm_response
+        
+        return result
+
+    @abc.abstractmethod
+    async def submit_messages(self, messages: List[Dict[str,str]], formatted_tools: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Submit messages to the LLM with the formatted tools.
+        
+        Args:
+            messages: List of message dictionaries containing the conversation
+            formatted_tools: Tools in the LLM-specific format
+            
+        Returns:
+            LLM response
+        """
+        pass

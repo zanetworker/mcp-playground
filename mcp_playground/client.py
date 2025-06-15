@@ -10,6 +10,7 @@ Example: http://localhost:8000/sse
 
 import asyncio
 import logging
+import sys
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 from dataclasses import dataclass
@@ -143,9 +144,19 @@ class MCPClient:
                 last_exception = MCPTimeoutError(f"{operation_name} timed out after {self.timeout} seconds")
                 logger.warning(f"{operation_name} timed out on attempt {attempt + 1}")
                 
-            except Exception as e:
-                last_exception = e
-                logger.warning(f"{operation_name} failed on attempt {attempt + 1}: {str(e)}")
+            except BaseException as e:
+                # Handle both regular exceptions and ExceptionGroup (Python 3.11+)
+                if sys.version_info >= (3, 11) and hasattr(__builtins__, 'BaseExceptionGroup') and isinstance(e, BaseExceptionGroup):
+                    # Convert ExceptionGroup to a more manageable error
+                    error_messages = []
+                    for exc in e.exceptions:
+                        error_messages.append(str(exc))
+                    error_summary = "; ".join(error_messages)
+                    last_exception = MCPConnectionError(f"TaskGroup error: {error_summary}")
+                    logger.warning(f"{operation_name} failed on attempt {attempt + 1} with TaskGroup error: {error_summary}")
+                else:
+                    last_exception = e
+                    logger.warning(f"{operation_name} failed on attempt {attempt + 1}: {str(e)}")
                 
                 # Don't retry on certain types of errors
                 if isinstance(e, (ValueError, TypeError)):
@@ -186,21 +197,20 @@ class MCPClient:
                     return await operation_func(session_context)
                     
         except Exception as e:
-            logger.error(f"SSE operation failed: {str(e)}")
-            # Ensure proper cleanup of any remaining tasks
-            if session:
-                try:
-                    # Cancel any pending tasks in the session
-                    tasks = [task for task in asyncio.all_tasks() if not task.done()]
-                    if tasks:
-                        logger.debug(f"Cancelling {len(tasks)} pending tasks")
-                        for task in tasks:
-                            task.cancel()
-                        # Wait for tasks to be cancelled
-                        await asyncio.gather(*tasks, return_exceptions=True)
-                except Exception as cleanup_error:
-                    logger.warning(f"Error during task cleanup: {cleanup_error}")
-            raise
+            # Handle both regular exceptions and ExceptionGroup (Python 3.11+)
+            if sys.version_info >= (3, 11) and hasattr(__builtins__, 'BaseExceptionGroup') and isinstance(e, BaseExceptionGroup):
+                logger.error(f"TaskGroup/ExceptionGroup error in SSE operation: {e}")
+                # Extract meaningful error messages from the group
+                error_messages = []
+                for exc in e.exceptions:
+                    error_messages.append(str(exc))
+                error_summary = "; ".join(error_messages)
+                raise MCPConnectionError(f"SSE operation failed with multiple errors: {error_summary}")
+            else:
+                logger.error(f"SSE operation failed: {str(e)}")
+                # Let context managers handle cleanup naturally
+                # Removed all manual task cancellation to prevent TaskGroup errors
+                raise
 
     async def list_tools(self) -> List[ToolDef]:
         """List available tools from the MCP endpoint

@@ -5,8 +5,12 @@ import json
 import asyncio
 import datetime
 import traceback
+import logging
 import ollama  # Import ollama for model listing
 from typing import List, Dict, Any, Optional, Union
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 # Add parent directory to path to import mcp_sse_client
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -354,7 +358,10 @@ def auto_refresh_models(provider: str, force: bool = False) -> bool:
             # If we're in an existing loop, use thread executor
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, auto_refresh_models_async(provider, force))
+                future = executor.submit(
+                    asyncio.run,
+                    auto_refresh_models_async(provider, force)
+                )
                 return future.result(timeout=30)
         except RuntimeError:
             # No event loop running, safe to use asyncio.run()
@@ -469,14 +476,12 @@ async def chat_with_llm_directly(user_input):
     return "No LLM provider configured for direct chat."
 
 # --- Connection Functions ---
-async def connect_to_server_async():
+async def connect_to_server_async(endpoint, llm_provider, api_keys, selected_models, ollama_config):
     """Connect to MCP server and LLM provider with enhanced error handling."""
     try:
-        st.session_state.connection_error = None
-        
         # Create MCP client with correct parameters (no retry_delay)
         client = MCPClient(
-            st.session_state.mcp_endpoint,
+            endpoint,
             timeout=30.0,
             max_retries=3
         )
@@ -486,68 +491,99 @@ async def connect_to_server_async():
         
         # Create LLM bridge based on provider
         llm_bridge = None
-        if st.session_state.llm_provider in ["openai", "anthropic", "google"] and st.session_state.api_keys["openrouter"]:
+        if llm_provider in ["openai", "anthropic", "google"] and api_keys.get("openrouter"):
             # Get selected model for the provider
-            selected_model_key = f"{st.session_state.llm_provider}_openrouter_model"
-            selected_model = st.session_state.get(selected_model_key)
+            selected_model = selected_models.get(f"{llm_provider}_openrouter_model")
             
             if selected_model:
                 llm_bridge = OpenRouterBridge(
                     client,
-                    api_key=st.session_state.api_keys["openrouter"],
+                    api_key=api_keys["openrouter"],
                     model=selected_model,
-                    site_url=st.session_state.openrouter_site_url,
-                    site_name=st.session_state.openrouter_site_name
+                    site_url=api_keys.get("openrouter_site_url", ""),
+                    site_name=api_keys.get("openrouter_site_name", "")
                 )
-        elif st.session_state.llm_provider == "ollama":
-            host = st.session_state.ollama_host if st.session_state.ollama_host else None
-            llm_bridge = OllamaBridge(client, model=st.session_state.ollama_model, host=host)
+        elif llm_provider == "ollama":
+            host = ollama_config.get("host") if ollama_config.get("host") else None
+            llm_bridge = OllamaBridge(client, model=ollama_config.get("model"), host=host)
         
-        # Update session state
-        st.session_state.client = client
-        st.session_state.llm_bridge = llm_bridge
-        st.session_state.tools = tools
-        st.session_state.connected = True
-        
-        return True, f"Connected to {st.session_state.mcp_endpoint}", len(tools)
+        return True, f"Connected to {endpoint}", len(tools), client, llm_bridge, tools
             
     except MCPConnectionError as e:
-        st.session_state.connected = False
-        st.session_state.connection_error = f"Connection failed: {e}"
-        return False, f"Connection failed: {e}", 0
+        return False, f"Connection failed: {e}", 0, None, None, []
     except MCPTimeoutError as e:
-        st.session_state.connected = False
-        st.session_state.connection_error = f"Connection timed out: {e}"
-        return False, f"Connection timed out: {e}", 0
+        return False, f"Connection timed out: {e}", 0, None, None, []
     except Exception as e:
-        st.session_state.connected = False
-        st.session_state.connection_error = f"Unexpected error: {e}"
-        return False, f"Unexpected error: {e}\n{traceback.format_exc()}", 0
+        return False, f"Unexpected error: {e}\n{traceback.format_exc()}", 0, None, None, []
 
 def connect_to_server():
-    """Synchronous wrapper for async connection function."""
+    """Synchronous wrapper for async connection function with improved event loop isolation."""
     try:
-        # Handle event loop properly
-        try:
-            loop = asyncio.get_running_loop()
-            # If we're in an existing loop, use thread executor
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, connect_to_server_async())
-                success, message, tool_count = future.result(timeout=60)
-        except RuntimeError:
-            # No event loop running, safe to use asyncio.run()
-            success, message, tool_count = asyncio.run(connect_to_server_async())
+        # Clear any previous connection error
+        st.session_state.connection_error = None
+        
+        # Gather all needed parameters from session state
+        endpoint = st.session_state.mcp_endpoint
+        llm_provider = st.session_state.llm_provider
+        api_keys = {
+            "openrouter": st.session_state.api_keys["openrouter"],
+            "openrouter_site_url": st.session_state.openrouter_site_url,
+            "openrouter_site_name": st.session_state.openrouter_site_name
+        }
+        selected_models = {
+            "openai_openrouter_model": st.session_state.get("openai_openrouter_model"),
+            "anthropic_openrouter_model": st.session_state.get("anthropic_openrouter_model"),
+            "google_openrouter_model": st.session_state.get("google_openrouter_model")
+        }
+        ollama_config = {
+            "host": st.session_state.ollama_host,
+            "model": st.session_state.ollama_model
+        }
+        
+        # Use completely isolated event loop to avoid Streamlit conflicts
+        def run_in_isolated_loop():
+            # Create new event loop to avoid TaskGroup conflicts
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(
+                    connect_to_server_async(endpoint, llm_provider, api_keys, selected_models, ollama_config)
+                )
+            except Exception as e:
+                logger.error(f"Error in isolated loop: {e}")
+                raise
+            finally:
+                # Clean shutdown of our event loop only
+                try:
+                    # Only clean up tasks in our isolated loop
+                    pending = asyncio.all_tasks(loop)
+                    if pending:
+                        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                finally:
+                    loop.close()
+        
+        # Run in thread executor with completely isolated event loop
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(run_in_isolated_loop)
+            success, message, tool_count, client, llm_bridge, tools = future.result(timeout=60)
         
         if success:
-            # Single consolidated success message with all connection details
-            connection_details = [f"Connected to {st.session_state.mcp_endpoint}"]
+            # Update session state with successful connection
+            st.session_state.client = client
+            st.session_state.llm_bridge = llm_bridge
+            st.session_state.tools = tools
+            st.session_state.connected = True
+            st.session_state.connection_error = None
             
-            if st.session_state.llm_bridge:
-                if st.session_state.llm_provider == "ollama":
-                    connection_details.append(f"LLM: {st.session_state.llm_provider} ({st.session_state.ollama_model})")
+            # Single consolidated success message with all connection details
+            connection_details = [f"Connected to {endpoint}"]
+            
+            if llm_bridge:
+                if llm_provider == "ollama":
+                    connection_details.append(f"LLM: {llm_provider} ({ollama_config['model']})")
                 else:
-                    connection_details.append(f"LLM: {st.session_state.llm_provider}")
+                    connection_details.append(f"LLM: {llm_provider}")
             
             if tool_count > 0:
                 connection_details.append(f"Tools: {tool_count} available")
@@ -559,7 +595,18 @@ def connect_to_server():
             # Force UI refresh to update button and status immediately
             st.rerun()
         else:
+            # Update session state with failure
+            st.session_state.connected = False
+            st.session_state.client = None
+            st.session_state.llm_bridge = None
+            st.session_state.tools = []
+            st.session_state.connection_error = message
             st.error(f"❌ {message}")
+            
+    except concurrent.futures.TimeoutError:
+        st.error("❌ Connection timed out after 60 seconds")
+        st.session_state.connected = False
+        st.session_state.connection_error = "Connection timeout"
     except Exception as e:
         st.error(f"❌ Connection error: {e}")
         st.session_state.connected = False
@@ -739,7 +786,7 @@ async def process_user_message_async(user_input):
             return "❌ No LLM bridge configured. Please configure an API key and connect to MCP server."
         
         try:
-            result = await st.session_state.llm_bridge.process_query(user_input, st.session_state.messages)
+            result = await st.session_state.llm_bridge.process_messages(st.session_state.messages)
             
             # Handle enhanced response structure for tools mode
             if isinstance(result, dict):
@@ -809,7 +856,7 @@ async def process_user_message_async(user_input):
                 # Only show this info in debug mode, not always
                 # st.info(f"🔧 Auto mode: {tools_count} MCP tools available for LLM to use")
             
-            result = await st.session_state.llm_bridge.process_query(user_input, st.session_state.messages)
+            result = await st.session_state.llm_bridge.process_messages(st.session_state.messages)
             
             # Handle enhanced response structure
             if isinstance(result, dict):
@@ -875,10 +922,13 @@ def process_user_message(user_input):
         # Check if there's already an event loop running
         try:
             loop = asyncio.get_running_loop()
-            # If we're in an existing loop, we need to use a different approach
+            # If we're in an existing loop, use thread executor
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, process_user_message_async(user_input))
+                future = executor.submit(
+                    asyncio.run,
+                    process_user_message_async(user_input)
+                )
                 result = future.result(timeout=60)  # 60 second timeout
             return result
         except RuntimeError:

@@ -12,7 +12,9 @@ OPENAI_MODELS = [
     'gpt-4-vision-preview',
     'gpt-3.5-turbo',
     'o1-preview',
-    'o1-mini'
+    'o1-mini',
+    'o3',
+    'o3-mini',
 ]
 DEFAULT_OPENAI_MODEL = 'gpt-4o'
 

@@ -1,0 +1,1 @@
+# Test fixtures and sample data for MCP playground tests

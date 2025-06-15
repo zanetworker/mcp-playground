@@ -86,6 +86,25 @@ class AnthropicBridge(LLMBridge):
         
         return response
     
+    async def submit_messages(self, messages: List[Dict[str,str]], formatted_tools: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Submit messages to Anthropic with the formatted tools.
+        
+        Args:
+            messages: List of message dictionaries
+            formatted_tools: Tools in Anthropic format
+            
+        Returns:
+            Anthropic API response
+        """
+        response = self.llm_client.messages.create(
+            model=self.model,
+            max_tokens=4096,
+            messages=messages,
+            tools=formatted_tools
+        )
+        
+        return response
+    
     async def parse_tool_call(self, llm_response: Any) -> Optional[Dict[str, Any]]:
         """Parse the Anthropic response to extract tool calls.
         

@@ -91,6 +91,37 @@ class OpenRouterBridge(LLMBridge):
         
         return response
     
+    async def submit_messages(self, messages: List[Dict[str,str]], formatted_tools: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Submit messages to OpenRouter with the formatted tools.
+        
+        Args:
+            messages: List of message dictionaries
+            formatted_tools: Tools in OpenAI format
+            
+        Returns:
+            OpenRouter API response (OpenAI-compatible format)
+        """
+        # Prepare extra headers for OpenRouter
+        extra_headers = self.openrouter_client.get_extra_headers()
+        
+        # Make the API call
+        if formatted_tools:
+            response = self.llm_client.chat.completions.create(
+                extra_headers=extra_headers,
+                model=self.model,
+                messages=messages,
+                tools=formatted_tools,
+                tool_choice="auto"
+            )
+        else:
+            response = self.llm_client.chat.completions.create(
+                extra_headers=extra_headers,
+                model=self.model,
+                messages=messages
+            )
+        
+        return response
+    
     async def submit_query_without_tools(self, messages: List[Dict[str, Any]]) -> Any:
         """Submit a query to OpenRouter without tools for final processing.
         

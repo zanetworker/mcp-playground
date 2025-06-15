@@ -84,7 +84,35 @@ class OllamaBridge(LLMBridge):
         except Exception as e:
             print(f"An unexpected error occurred with Ollama: {e}")
             raise e
-
+        
+    async def submit_messages(self, messages: List[Dict[str,str]], formatted_tools: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Submit messages to Ollama with the formatted tools.
+        
+        Args:
+            messages: List of message dictionaries
+            formatted_tools: Tools in Ollama/OpenAI format
+            
+        Returns:
+            Ollama API response object (dictionary-like)
+        """
+        try:
+            response = await self.llm_client.chat(
+                model=self.model,
+                messages=messages,
+                tools=formatted_tools,
+                # Ollama automatically decides on tool use if tools are provided
+            )
+            # The response object is already a dictionary
+            return response
+        except ollama.ResponseError as e:
+            # Handle potential errors like model not found
+            print(f"Ollama API Error: {e.error} (Status code: {e.status_code})")
+            # Re-raise or return an error structure if needed
+            raise e
+        except Exception as e:
+            print(f"An unexpected error occurred with Ollama: {e}")
+            raise e
+        
     async def submit_query_without_tools(self, messages: List[Dict[str, Any]]) -> Any:
         """Submit a query to Ollama without tools for final processing.
         

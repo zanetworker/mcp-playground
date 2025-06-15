@@ -160,3 +160,4 @@ sessions/
 # Logs
 *.log.*
 logs/
+.roo/

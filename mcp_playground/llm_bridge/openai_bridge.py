@@ -59,7 +59,26 @@ class OpenAIBridge(LLMBridge):
         )
         
         return response
-    
+
+    async def submit_messages(self, messages: List[Dict[str,str]], formatted_tools: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Submit messages to OpenAI with the formatted tools.
+        
+        Args:
+            messages: List of message dictionaries
+            formatted_tools: Tools in OpenAI format
+            
+        Returns:
+            OpenAI API response
+        """
+        response = self.llm_client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            tools=formatted_tools,
+            tool_choice="auto"
+        )
+        
+        return response
+
     async def submit_query_without_tools(self, messages: List[Dict[str, Any]]) -> Any:
         """Submit a query to OpenAI without tools for final processing.
         

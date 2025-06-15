@@ -1,0 +1,1 @@
+# Mock classes for testing MCP playground components
