@@ -161,8 +161,9 @@ class OpenRouterBridge(LLMBridge):
                     try:
                         import json
                         return {
+                            "id": tool_call.id,
                             "name": tool_call.function.name,
-                            "parameters": json.loads(tool_call.function.arguments)
+                            "parameters": json.loads(tool_call.function.arguments),
                         }
                     except (json.JSONDecodeError, AttributeError):
                         pass

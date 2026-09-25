@@ -107,18 +107,19 @@ class AnthropicBridge(LLMBridge):
     
     async def parse_tool_call(self, llm_response: Any) -> Optional[Dict[str, Any]]:
         """Parse the Anthropic response to extract tool calls.
-        
+
         Args:
             llm_response: Response from Anthropic
-            
+
         Returns:
-            Dictionary with tool name and parameters, or None if no tool call
+            Dictionary with tool name, parameters, and id, or None if no tool call
         """
         for content in llm_response.content:
             if content.type == "tool_use":
                 return {
-                    "name": content.name,  # Access name directly from the ToolUseBlock
-                    "parameters": content.input  # Access input directly from the ToolUseBlock
+                    "id": content.id,
+                    "name": content.name,
+                    "parameters": content.input,
                 }
-        
+
         return None

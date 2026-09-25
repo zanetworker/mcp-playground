@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-playground"
+version = "1.0.0"
+description = "A comprehensive Python toolkit for interacting with remote Model Context Protocol (MCP) endpoints"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "zanetworker" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "mcp>=1.26.0",
+    "httpx>=0.28.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+llm = [
+    "openai>=2.28.0",
+    "anthropic>=0.84.0",
+    "ollama>=0.6.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.23.0",
+    "black>=24.0.0",
+    "ruff>=0.4.0",
+]
+app = [
+    "streamlit>=1.30.0",
+]
+all = [
+    "mcp-playground[llm,dev,app]",
+]
+
+[project.urls]
+Homepage = "https://github.com/zanetworker/mcp-playground"
+Repository = "https://github.com/zanetworker/mcp-playground"
+Issues = "https://github.com/zanetworker/mcp-playground/issues"
+
+[tool.setuptools]
+packages = { find = {} }
+
+[tool.setuptools_scm]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.black]
+line-length = 120
+target-version = ["py310"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --tb=native"
+asyncio_mode = "auto"

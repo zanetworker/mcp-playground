@@ -64,7 +64,7 @@ if "api_keys" not in st.session_state:
         "openrouter": os.environ.get("OPENROUTER_API_KEY", "")
     }
 if "mcp_endpoint" not in st.session_state:
-    st.session_state.mcp_endpoint = "http://localhost:8001/sse"
+    st.session_state.mcp_endpoint = "http://localhost:8001/mcp"
 if "llm_provider" not in st.session_state:
     st.session_state.llm_provider = "openai"
 if "openai_model" not in st.session_state:
@@ -77,6 +77,8 @@ if "ollama_host" not in st.session_state:
     st.session_state.ollama_host = ""
 if "ollama_models" not in st.session_state:
     st.session_state.ollama_models = []
+if "mcp_transport" not in st.session_state:
+    st.session_state.mcp_transport = "streamable-http"
 if "chat_mode" not in st.session_state:
     st.session_state.chat_mode = "auto"  # auto, chat, tools
 if "show_tools_only" not in st.session_state:
@@ -159,7 +161,7 @@ async def fetch_ollama_models(host=None):
         
         return model_names
     except Exception as e:
-        print(f"Error fetching Ollama models: {e}")
+        logger.debug(f"Error fetching Ollama models: {e}")
         return []
 
 # --- Tool Capability Detection ---
@@ -267,7 +269,7 @@ async def fetch_openrouter_models_by_provider(api_key, provider, limit=5, tools_
         
         return formatted_models
     except Exception as e:
-        print(f"Error fetching {provider} models from OpenRouter: {e}")
+        logger.debug(f"Error fetching {provider} models from OpenRouter: {e}")
         return []
 
 def sync_fetch_openrouter_models(api_key, provider, limit=5, tools_only=False):
@@ -288,7 +290,7 @@ def sync_fetch_openrouter_models(api_key, provider, limit=5, tools_only=False):
             # No event loop running, safe to use asyncio.run()
             return asyncio.run(fetch_openrouter_models_by_provider(api_key, provider, limit, tools_only))
     except Exception as e:
-        print(f"Error in sync fetch: {e}")
+        logger.debug(f"Error in sync fetch: {e}")
         return []
 
 # --- Auto-Refresh Functions ---
@@ -311,7 +313,7 @@ async def auto_refresh_models_async(provider: str, force: bool = False) -> bool:
             # OpenRouter providers
             api_key = st.session_state.api_keys.get("openrouter")
             if not api_key:
-                print(f"No OpenRouter API key available for {provider}")
+                logger.debug(f"No OpenRouter API key available for {provider}, using static model list")
                 return False
             
             models = await fetch_openrouter_models_by_provider(
@@ -326,7 +328,7 @@ async def auto_refresh_models_async(provider: str, force: bool = False) -> bool:
                     st.session_state[selected_model_key] = models[0]["id"]
                 return True
             else:
-                print(f"No models found for {provider}")
+                logger.debug(f"No OpenRouter models found for {provider}")
                 return False
                 
         elif provider == "ollama":
@@ -340,13 +342,13 @@ async def auto_refresh_models_async(provider: str, force: bool = False) -> bool:
                     st.session_state.ollama_model = st.session_state.ollama_models[0]
                 return True
             else:
-                print("No Ollama models found")
+                logger.debug("No Ollama models found")
                 return False
         
         return False
         
     except Exception as e:
-        print(f"Error auto-refreshing {provider} models: {e}")
+        logger.debug(f"Error auto-refreshing {provider} models: {e}")
         return False
 
 def auto_refresh_models(provider: str, force: bool = False) -> bool:
@@ -367,7 +369,7 @@ def auto_refresh_models(provider: str, force: bool = False) -> bool:
             # No event loop running, safe to use asyncio.run()
             return asyncio.run(auto_refresh_models_async(provider, force))
     except Exception as e:
-        print(f"Error in sync auto-refresh: {e}")
+        logger.debug(f"Error in sync auto-refresh: {e}")
         return False
 
 def should_refresh_models(provider: str) -> bool:
@@ -476,17 +478,17 @@ async def chat_with_llm_directly(user_input):
     return "No LLM provider configured for direct chat."
 
 # --- Connection Functions ---
-async def connect_to_server_async(endpoint, llm_provider, api_keys, selected_models, ollama_config):
+async def connect_to_server_async(endpoint, llm_provider, api_keys, selected_models, ollama_config, transport="streamable-http"):
     """Connect to MCP server and LLM provider with enhanced error handling."""
     try:
-        # Create MCP client with correct parameters (no retry_delay)
         client = MCPClient(
             endpoint,
+            transport=transport,
             timeout=30.0,
-            max_retries=3
         )
-        
-        # Test connection by listing tools
+
+        # Connect and list tools
+        await client.connect()
         tools = await client.list_tools()
         
         # Create LLM bridge based on provider
@@ -524,6 +526,7 @@ def connect_to_server():
         
         # Gather all needed parameters from session state
         endpoint = st.session_state.mcp_endpoint
+        transport = st.session_state.mcp_transport
         llm_provider = st.session_state.llm_provider
         api_keys = {
             "openrouter": st.session_state.api_keys["openrouter"],
@@ -547,7 +550,7 @@ def connect_to_server():
             asyncio.set_event_loop(loop)
             try:
                 return loop.run_until_complete(
-                    connect_to_server_async(endpoint, llm_provider, api_keys, selected_models, ollama_config)
+                    connect_to_server_async(endpoint, llm_provider, api_keys, selected_models, ollama_config, transport)
                 )
             except Exception as e:
                 logger.error(f"Error in isolated loop: {e}")
@@ -614,13 +617,20 @@ def connect_to_server():
 
 def disconnect_from_server():
     """Disconnect from server and clean up."""
+    client = st.session_state.client
+    if client is not None:
+        try:
+            loop = asyncio.new_event_loop()
+            loop.run_until_complete(client.disconnect())
+            loop.close()
+        except Exception:
+            pass
     st.session_state.connected = False
     st.session_state.client = None
     st.session_state.llm_bridge = None
     st.session_state.tools = []
     st.session_state.connection_error = None
-    st.success("✅ Disconnected from server")
-    # Force UI refresh to update button and status immediately
+    st.success("Disconnected from server")
     st.rerun()
 
 # --- Response Parsing Helper ---
@@ -635,13 +645,13 @@ def extract_content_from_llm_response(llm_response, response_stage="final"):
         str: Clean text content extracted from the response (never None)
     """
     try:
-        print(f"DEBUG extract_content_from_llm_response: Input type: {type(llm_response)}")
-        print(f"DEBUG extract_content_from_llm_response: Input value: {llm_response}")
+        logger.debug(f"DEBUG extract_content_from_llm_response: Input type: {type(llm_response)}")
+        logger.debug(f"DEBUG extract_content_from_llm_response: Input value: {llm_response}")
         
         # OpenAI ChatCompletion object
         if hasattr(llm_response, 'choices') and llm_response.choices:
             content = llm_response.choices[0].message.content
-            print(f"DEBUG: OpenAI content extracted: {content}")
+            logger.debug(f"DEBUG: OpenAI content extracted: {content}")
             return content if content is not None else "No content received from OpenAI"
         
         # Anthropic Message object
@@ -649,21 +659,21 @@ def extract_content_from_llm_response(llm_response, response_stage="final"):
             for content in llm_response.content:
                 if hasattr(content, 'type') and content.type == "text":
                     text = content.text
-                    print(f"DEBUG: Anthropic text content extracted: {text}")
+                    logger.debug(f"DEBUG: Anthropic text content extracted: {text}")
                     return text if text is not None else "No text content from Anthropic"
             # Fallback: return first content item as string
             first_content = str(llm_response.content[0])
-            print(f"DEBUG: Anthropic fallback content: {first_content}")
+            logger.debug(f"DEBUG: Anthropic fallback content: {first_content}")
             return first_content if first_content else "Empty content from Anthropic"
         
         # Dict response (could be from any provider)
         elif isinstance(llm_response, dict):
-            print(f"DEBUG: Dict response keys: {list(llm_response.keys())}")
+            logger.debug(f"DEBUG: Dict response keys: {list(llm_response.keys())}")
             
             # Check for direct content key
             if 'content' in llm_response:
                 content = llm_response['content']
-                print(f"DEBUG: Direct content key found: {content}")
+                logger.debug(f"DEBUG: Direct content key found: {content}")
                 return content if content else "Empty content in dict"
             
             # Check for message.content (Ollama format)
@@ -671,44 +681,44 @@ def extract_content_from_llm_response(llm_response, response_stage="final"):
                 message = llm_response['message']
                 if isinstance(message, dict) and 'content' in message:
                     content = message['content']
-                    print(f"DEBUG: Ollama message content: {content}")
+                    logger.debug(f"DEBUG: Ollama message content: {content}")
                     return content if content is not None else "No content in Ollama message"
             
             # Check for response key (some providers use this)
             if 'response' in llm_response:
                 response = llm_response['response']
-                print(f"DEBUG: Response key found: {response}")
+                logger.debug(f"DEBUG: Response key found: {response}")
                 return response if response else "Empty response in dict"
             
             # Check for text key
             if 'text' in llm_response:
                 text = llm_response['text']
-                print(f"DEBUG: Text key found: {text}")
+                logger.debug(f"DEBUG: Text key found: {text}")
                 return text if text else "Empty text in dict"
             
             # Fallback: convert entire dict to string
             fallback = str(llm_response)
-            print(f"DEBUG: Dict fallback: {fallback}")
+            logger.debug(f"DEBUG: Dict fallback: {fallback}")
             return fallback if fallback else "Empty dict response"
         
         # String response (already clean)
         elif isinstance(llm_response, str):
-            print(f"DEBUG: String response: {llm_response}")
+            logger.debug(f"DEBUG: String response: {llm_response}")
             return llm_response if llm_response else "Empty string response"
         
         # None response
         elif llm_response is None:
-            print("DEBUG: None response")
+            logger.debug("DEBUG: None response")
             return "No response received"
         
         # Fallback: convert to string
         fallback = str(llm_response)
-        print(f"DEBUG: Final fallback: {fallback}")
+        logger.debug(f"DEBUG: Final fallback: {fallback}")
         return fallback if fallback else "Empty response object"
         
     except Exception as e:
         error_msg = f"Error extracting content: {e}"
-        print(f"DEBUG: Exception in extract_content_from_llm_response: {error_msg}")
+        logger.debug(f"DEBUG: Exception in extract_content_from_llm_response: {error_msg}")
         return error_msg
 
 def format_tool_result(tool_result_content):
@@ -874,14 +884,11 @@ async def process_user_message_async(user_input):
                 final_content = extract_content_from_llm_response(final_llm_response, "final")
                 
                 # Debug logging for enhanced structure
-                print(f"DEBUG: Enhanced Response Structure:")
-                print(f"  - Initial Response Type: {type(initial_llm_response)}")
-                print(f"  - Final Response Type: {type(final_llm_response)}")
-                print(f"  - Final Content: {final_content}")
-                print(f"  - Tool Call: {tool_call}")
-                print(f"  - Tool Result: {tool_result}")
-                print(f"  - Processing Steps: {len(processing_steps)}")
-                print(f"  - Metadata: {metadata}")
+                logger.debug(
+                    f"Enhanced Response: initial={type(initial_llm_response)}, "
+                    f"final={type(final_llm_response)}, tool_call={tool_call}, "
+                    f"steps={len(processing_steps)}"
+                )
                 
                 # Store comprehensive response data for UI display
                 enhanced_response_data = {
@@ -972,17 +979,23 @@ with st.sidebar:
     mcp_endpoint = st.text_input(
         "MCP Endpoint URL",
         value=st.session_state.mcp_endpoint,
-        help="⚠️ IMPORTANT: URL must end with /sse for Server-Sent Events. Example: http://localhost:8000/sse",
-        placeholder="http://localhost:8000/sse"
+        help="URL of the MCP server. Use /mcp for Streamable HTTP or /sse for SSE transport.",
+        placeholder="http://localhost:8000/mcp"
     )
-    
-    # Add visual warning if URL doesn't end with /sse
-    if mcp_endpoint and not mcp_endpoint.endswith('/sse'):
-        st.warning("⚠️ URL should end with `/sse` for proper SSE communication. Example: `http://localhost:8000/sse`")
+
+    # Transport selector
+    mcp_transport = st.selectbox(
+        "Transport",
+        options=["streamable-http", "sse"],
+        index=0 if st.session_state.mcp_transport == "streamable-http" else 1,
+        help="Streamable HTTP is recommended for production. SSE is supported for legacy servers.",
+    )
+    st.session_state.mcp_transport = mcp_transport
+
     # Auto-disconnect if endpoint changes while connected
     if st.session_state.mcp_endpoint != mcp_endpoint and st.session_state.connected:
         disconnect_from_server()
-        st.info("🔄 Disconnected due to endpoint change. Click Connect to reconnect.")
+        st.info("Disconnected due to endpoint change. Click Connect to reconnect.")
     st.session_state.mcp_endpoint = mcp_endpoint
 
     st.markdown("""

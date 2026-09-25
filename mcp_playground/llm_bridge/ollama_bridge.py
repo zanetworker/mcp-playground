@@ -1,17 +1,16 @@
 """
 Ollama-specific implementation of the LLM Bridge for local models.
 """
-from typing import Dict, List, Any, Optional
 import json
+import logging
+from typing import Dict, List, Any, Optional
 import ollama
+
+logger = logging.getLogger(__name__)
 from ..client import ToolDef
 from ..format_converters import to_openai_format # Ollama uses OpenAI-like tool format
 from .base import LLMBridge
-from .models import OPENAI_MODELS # Re-use OpenAI format for tools
-
-# Note: Ollama model names are user-defined (e.g., 'llama3', 'mistral')
-# We won't define a static list here, but allow users to specify.
-DEFAULT_OLLAMA_MODEL = "llama3" # A common default, user might need to change
+from .models import DEFAULT_OLLAMA_MODEL
 
 class OllamaBridge(LLMBridge):
     """Ollama-specific implementation of the LLM Bridge."""
@@ -39,7 +38,7 @@ class OllamaBridge(LLMBridge):
             "base_url": host or "http://localhost:11434"
         }
         
-        print(f"Ollama Bridge initialized. Model: {self.model}, Host: {self.host or 'default'}")
+        logger.info(f"Ollama Bridge initialized. Model: {self.model}, Host: {self.host or 'default'}")
 
     async def format_tools(self, tools: List[ToolDef]) -> List[Dict[str, Any]]:
         """Format tools for Ollama (uses OpenAI-like format).
@@ -78,11 +77,11 @@ class OllamaBridge(LLMBridge):
             return response 
         except ollama.ResponseError as e:
             # Handle potential errors like model not found
-            print(f"Ollama API Error: {e.error} (Status code: {e.status_code})")
+            logger.error(f"Ollama API Error: {e.error} (Status code: {e.status_code})")
             # Re-raise or return an error structure if needed
             raise e 
         except Exception as e:
-            print(f"An unexpected error occurred with Ollama: {e}")
+            logger.error(f"Unexpected Ollama error: {e}")
             raise e
         
     async def submit_messages(self, messages: List[Dict[str,str]], formatted_tools: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -106,11 +105,11 @@ class OllamaBridge(LLMBridge):
             return response
         except ollama.ResponseError as e:
             # Handle potential errors like model not found
-            print(f"Ollama API Error: {e.error} (Status code: {e.status_code})")
+            logger.error(f"Ollama API Error: {e.error} (Status code: {e.status_code})")
             # Re-raise or return an error structure if needed
             raise e
         except Exception as e:
-            print(f"An unexpected error occurred with Ollama: {e}")
+            logger.error(f"Unexpected Ollama error: {e}")
             raise e
         
     async def submit_query_without_tools(self, messages: List[Dict[str, Any]]) -> Any:
@@ -130,7 +129,7 @@ class OllamaBridge(LLMBridge):
             )
             return response
         except Exception as e:
-            print(f"An unexpected error occurred with Ollama: {e}")
+            logger.error(f"Unexpected Ollama error: {e}")
             raise e
 
     async def parse_tool_call(self, llm_response: Any) -> Optional[Dict[str, Any]]:
@@ -158,46 +157,28 @@ class OllamaBridge(LLMBridge):
             try:
                 arguments = json.loads(arguments)
             except json.JSONDecodeError:
-                print(f"Warning: Could not parse tool arguments as JSON: {arguments}")
+                logger.warning(f"Could not parse tool arguments as JSON: {arguments}")
                 arguments = {} # Fallback to empty dict
 
         return {
+            "id": f"ollama_call_{tool_call.get('id', '1')}",
             "name": function_info.get('name'),
-            "parameters": arguments
+            "parameters": arguments,
         }
 
     async def check_connection(self):
         """Check if the Ollama server is reachable and the model exists."""
         try:
-            # Simple check to see if server responds
-            await self.llm_client.list()
-            
-            # Check if the specific model exists locally
             models_info = await self.llm_client.list()
-            
-            # Debug the response structure
-            print(f"Ollama models response in check_connection: {models_info}")
-            
-            # Handle different response structures
             model_names = []
             if isinstance(models_info, dict) and 'models' in models_info:
-                # New API format
                 model_names = [m.get('name', m.get('model', '')) for m in models_info.get('models', [])]
             elif isinstance(models_info, list):
-                # Older API format or direct list
                 model_names = [m.get('name', m.get('model', '')) for m in models_info]
-            
-            # Filter out empty names
             model_names = [name for name in model_names if name]
-            
-            if not model_names:
-                print("Warning: No models found in Ollama response")
-                return True  # Still return True as the server is reachable
-                
             if self.model not in model_names:
-                print(f"Warning: Model '{self.model}' not found in local Ollama models: {model_names}")
-                # Depending on strictness, could raise an error here
+                logger.warning(f"Model '{self.model}' not found in local Ollama models: {model_names}")
             return True
         except Exception as e:
-            print(f"Error connecting to Ollama host '{self.host or 'default'}': {e}")
+            logger.error(f"Error connecting to Ollama host '{self.host or 'default'}': {e}")
             return False

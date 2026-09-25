@@ -99,21 +99,22 @@ class OpenAIBridge(LLMBridge):
     
     async def parse_tool_call(self, llm_response: Any) -> Optional[Dict[str, Any]]:
         """Parse the OpenAI response to extract tool calls.
-        
+
         Args:
             llm_response: Response from OpenAI
-            
+
         Returns:
-            Dictionary with tool name and parameters, or None if no tool call
+            Dictionary with tool name, parameters, and id, or None if no tool call
         """
         message = llm_response.choices[0].message
-        
+
         if not hasattr(message, 'tool_calls') or not message.tool_calls:
             return None
-        
+
         tool_call = message.tool_calls[0]
-        
+
         return {
+            "id": tool_call.id,
             "name": tool_call.function.name,
-            "parameters": json.loads(tool_call.function.arguments)
+            "parameters": json.loads(tool_call.function.arguments),
         }

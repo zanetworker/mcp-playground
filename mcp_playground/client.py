@@ -1,38 +1,25 @@
 """
-MCP SSE Client - A Python client for interacting with Model Context Protocol (MCP) endpoints.
+MCP Client - A Python client for interacting with Model Context Protocol (MCP) endpoints.
 
-This module provides a client for connecting to MCP endpoints using Server-Sent Events (SSE),
-listing available tools, and invoking tools with parameters.
-
-IMPORTANT: MCP server URLs must end with '/sse' for Server-Sent Events communication.
-Example: http://localhost:8000/sse
+Supports both Streamable HTTP (default) and SSE transports.
 """
 
 import asyncio
 import logging
-import sys
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
-from dataclasses import dataclass
-from mcp import ClientSession
-from mcp.client.sse import sse_client
-from pydantic import BaseModel
+from dataclasses import dataclass, field
 
-# Set up logging
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+from mcp.client.sse import sse_client
+
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class ToolParameter:
-    """Represents a parameter for a tool.
-    
-    Attributes:
-        name: Parameter name
-        parameter_type: Parameter type (e.g., "string", "number")
-        description: Parameter description
-        required: Whether the parameter is required
-        default: Default value for the parameter
-    """
+    """Represents a parameter for a tool."""
     name: str
     parameter_type: str
     description: str
@@ -42,15 +29,7 @@ class ToolParameter:
 
 @dataclass
 class ToolDef:
-    """Represents a tool definition.
-    
-    Attributes:
-        name: Tool name
-        description: Tool description
-        parameters: List of ToolParameter objects
-        metadata: Optional dictionary of additional metadata
-        identifier: Tool identifier (defaults to name)
-    """
+    """Represents a tool definition."""
     name: str
     description: str
     parameters: List[ToolParameter]
@@ -60,253 +39,269 @@ class ToolDef:
 
 @dataclass
 class ToolInvocationResult:
-    """Represents the result of a tool invocation.
-    
-    Attributes:
-        content: Result content as a string
-        error_code: Error code (0 for success, 1 for error)
-    """
+    """Represents the result of a tool invocation."""
     content: str
     error_code: int
+    structured_content: Optional[Dict[str, Any]] = None
+    raw_content: Optional[List[Any]] = field(default_factory=list)
 
 
 class MCPConnectionError(Exception):
-    """Exception raised when MCP connection fails"""
+    """Exception raised when MCP connection fails."""
     pass
 
 
 class MCPTimeoutError(Exception):
-    """Exception raised when MCP operation times out"""
+    """Exception raised when MCP operation times out."""
     pass
 
 
 class MCPClient:
-    """Client for interacting with Model Context Protocol (MCP) endpoints
-    
-    IMPORTANT: MCP server URLs must end with '/sse' for Server-Sent Events communication.
-    Example: http://localhost:8000/sse
+    """Client for interacting with Model Context Protocol (MCP) endpoints.
+
+    Supports both Streamable HTTP (default) and SSE transports.
+
+    Usage as context manager (recommended):
+        async with MCPClient("http://localhost:8000/mcp") as client:
+            tools = await client.list_tools()
+            result = await client.call_tool("add", arguments={"a": 1, "b": 2})
+
+    Usage with SSE transport:
+        async with MCPClient("http://localhost:8000/sse", transport="sse") as client:
+            tools = await client.list_tools()
+
+    Usage with custom httpx client:
+        import httpx
+        http = httpx.AsyncClient(headers={"Authorization": "Bearer token"})
+        async with MCPClient("http://localhost:8000/mcp", http_client=http) as client:
+            ...
+
+    One-shot usage (opens and closes connection per operation):
+        client = MCPClient("http://localhost:8000/mcp")
+        tools = await client.list_tools()
     """
-    
-    def __init__(self, endpoint: str, timeout: float = 30.0, max_retries: int = 3):
-        """Initialize MCP client with endpoint URL
-        
+
+    def __init__(
+        self,
+        endpoint: str,
+        transport: str = "streamable-http",
+        timeout: float = 30.0,
+        http_client: Optional[Any] = None,
+    ):
+        """Initialize MCP client.
+
         Args:
-            endpoint: The MCP endpoint URL (must be http or https and should end with '/sse')
+            endpoint: The MCP endpoint URL (http or https)
+            transport: Transport type - "streamable-http" (default) or "sse"
             timeout: Connection timeout in seconds
-            max_retries: Maximum number of retry attempts
-            
+            http_client: Optional pre-configured httpx.AsyncClient for custom auth/headers
+
         Raises:
-            ValueError: If endpoint is not a valid HTTP(S) URL
-            
-        Note:
-            The endpoint URL should end with '/sse' for proper Server-Sent Events communication.
-            Example: http://localhost:8000/sse
+            ValueError: If endpoint is not a valid HTTP(S) URL or transport is invalid
         """
-        if urlparse(endpoint).scheme not in ("http", "https"):
-            raise ValueError(f"Endpoint {endpoint} is not a valid HTTP(S) URL")
-        
-        # Warn if URL doesn't end with /sse (but don't fail - allow flexibility)
-        if not endpoint.endswith('/sse'):
-            logger.warning(f"Endpoint URL '{endpoint}' does not end with '/sse'. "
-                         f"MCP servers typically require '/sse' suffix for Server-Sent Events. "
-                         f"Consider using: {endpoint.rstrip('/')}/sse")
-        
+        parsed = urlparse(endpoint)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(f"Endpoint must be an HTTP(S) URL, got: {endpoint}")
+
+        if transport not in ("streamable-http", "sse"):
+            raise ValueError(f"Transport must be 'streamable-http' or 'sse', got: {transport}")
+
         self.endpoint = endpoint
+        self.transport = transport
         self.timeout = timeout
-        self.max_retries = max_retries
+        self.http_client = http_client
 
-    async def _execute_with_retry(self, operation_name: str, operation_func):
-        """Execute an operation with retry logic and proper error handling
-        
-        Args:
-            operation_name: Name of the operation for logging
-            operation_func: Async function to execute
-            
-        Returns:
-            Result of the operation
-            
+        # Session state
+        self._session: Optional[ClientSession] = None
+        self._transport_context = None
+        self._session_context = None
+        self._streams = None
+
+    async def __aenter__(self) -> "MCPClient":
+        """Open transport connection and initialize session."""
+        await self.connect()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Close session and transport connection."""
+        await self.disconnect()
+
+    async def connect(self) -> None:
+        """Establish connection to the MCP server.
+
         Raises:
-            MCPConnectionError: If connection fails after all retries
-            MCPTimeoutError: If operation times out
+            MCPConnectionError: If connection fails
+            MCPTimeoutError: If connection times out
         """
-        last_exception = None
-        
-        for attempt in range(self.max_retries):
-            try:
-                logger.debug(f"Attempting {operation_name} (attempt {attempt + 1}/{self.max_retries})")
-                
-                # Execute with timeout
-                result = await asyncio.wait_for(operation_func(), timeout=self.timeout)
-                logger.debug(f"{operation_name} completed successfully")
-                return result
-                
-            except asyncio.TimeoutError as e:
-                last_exception = MCPTimeoutError(f"{operation_name} timed out after {self.timeout} seconds")
-                logger.warning(f"{operation_name} timed out on attempt {attempt + 1}")
-                
-            except BaseException as e:
-                # Handle both regular exceptions and ExceptionGroup (Python 3.11+)
-                if sys.version_info >= (3, 11) and hasattr(__builtins__, 'BaseExceptionGroup') and isinstance(e, BaseExceptionGroup):
-                    # Convert ExceptionGroup to a more manageable error
-                    error_messages = []
-                    for exc in e.exceptions:
-                        error_messages.append(str(exc))
-                    error_summary = "; ".join(error_messages)
-                    last_exception = MCPConnectionError(f"TaskGroup error: {error_summary}")
-                    logger.warning(f"{operation_name} failed on attempt {attempt + 1} with TaskGroup error: {error_summary}")
-                else:
-                    last_exception = e
-                    logger.warning(f"{operation_name} failed on attempt {attempt + 1}: {str(e)}")
-                
-                # Don't retry on certain types of errors
-                if isinstance(e, (ValueError, TypeError)):
-                    break
-                    
-            # Wait before retry (exponential backoff)
-            if attempt < self.max_retries - 1:
-                wait_time = 2 ** attempt
-                logger.debug(f"Waiting {wait_time} seconds before retry")
-                await asyncio.sleep(wait_time)
-        
-        # All retries failed
-        if isinstance(last_exception, MCPTimeoutError):
-            raise last_exception
-        else:
-            raise MCPConnectionError(f"{operation_name} failed after {self.max_retries} attempts: {str(last_exception)}")
-
-    async def _safe_sse_operation(self, operation_func):
-        """Safely execute an SSE operation with proper task cleanup
-        
-        Args:
-            operation_func: Function that takes (streams, session) as arguments
-            
-        Returns:
-            Result of the operation
-        """
-        streams = None
-        session = None
-        
         try:
-            # Create SSE client with proper error handling
-            streams = sse_client(self.endpoint)
-            async with streams as stream_context:
-                # Create session with proper cleanup
-                session = ClientSession(*stream_context)
-                async with session as session_context:
-                    await session_context.initialize()
-                    return await operation_func(session_context)
-                    
-        except Exception as e:
-            # Handle both regular exceptions and ExceptionGroup (Python 3.11+)
-            if sys.version_info >= (3, 11) and hasattr(__builtins__, 'BaseExceptionGroup') and isinstance(e, BaseExceptionGroup):
-                logger.error(f"TaskGroup/ExceptionGroup error in SSE operation: {e}")
-                # Extract meaningful error messages from the group
-                error_messages = []
-                for exc in e.exceptions:
-                    error_messages.append(str(exc))
-                error_summary = "; ".join(error_messages)
-                raise MCPConnectionError(f"SSE operation failed with multiple errors: {error_summary}")
+            if self.transport == "streamable-http":
+                kwargs = {"url": self.endpoint}
+                if self.http_client is not None:
+                    kwargs["http_client"] = self.http_client
+                self._transport_context = streamable_http_client(**kwargs)
             else:
-                logger.error(f"SSE operation failed: {str(e)}")
-                # Let context managers handle cleanup naturally
-                # Removed all manual task cancellation to prevent TaskGroup errors
-                raise
+                self._transport_context = sse_client(self.endpoint)
+
+            streams = await self._transport_context.__aenter__()
+
+            # streamable_http_client returns (read, write, _), sse_client returns (read, write)
+            if len(streams) == 3:
+                read_stream, write_stream = streams[0], streams[1]
+            else:
+                read_stream, write_stream = streams[0], streams[1]
+
+            self._session_context = ClientSession(read_stream, write_stream)
+            self._session = await self._session_context.__aenter__()
+
+            await asyncio.wait_for(self._session.initialize(), timeout=self.timeout)
+            logger.info(f"Connected to {self.endpoint} via {self.transport}")
+
+        except asyncio.TimeoutError:
+            await self._cleanup()
+            raise MCPTimeoutError(f"Connection to {self.endpoint} timed out after {self.timeout}s")
+        except Exception as e:
+            await self._cleanup()
+            raise MCPConnectionError(f"Failed to connect to {self.endpoint}: {e}") from e
+
+    async def disconnect(self) -> None:
+        """Close the connection."""
+        await self._cleanup()
+        logger.info(f"Disconnected from {self.endpoint}")
+
+    async def _cleanup(self) -> None:
+        """Clean up session and transport resources."""
+        if self._session_context is not None:
+            try:
+                await self._session_context.__aexit__(None, None, None)
+            except Exception:
+                pass
+            self._session_context = None
+            self._session = None
+
+        if self._transport_context is not None:
+            try:
+                await self._transport_context.__aexit__(None, None, None)
+            except Exception:
+                pass
+            self._transport_context = None
+
+    def _ensure_connected(self) -> ClientSession:
+        """Ensure we have an active session, raise if not."""
+        if self._session is None:
+            raise MCPConnectionError(
+                "Not connected. Use 'async with MCPClient(...) as client:' "
+                "or call 'await client.connect()' first."
+            )
+        return self._session
+
+    async def _one_shot(self, operation):
+        """Execute a single operation with auto-connect/disconnect.
+
+        Used when the client is not used as a context manager.
+        """
+        await self.connect()
+        try:
+            return await operation()
+        finally:
+            await self.disconnect()
 
     async def list_tools(self) -> List[ToolDef]:
-        """List available tools from the MCP endpoint
-        
+        """List available tools from the MCP endpoint.
+
         Returns:
             List of ToolDef objects describing available tools
-            
-        Raises:
-            MCPConnectionError: If connection fails
-            MCPTimeoutError: If operation times out
         """
-        async def _list_tools_operation():
-            async def _operation(session):
-                tools_result = await session.list_tools()
-                tools = []
-                
-                for tool in tools_result.tools:
-                    parameters = []
-                    required_params = tool.inputSchema.get("required", [])
-                    for param_name, param_schema in tool.inputSchema.get("properties", {}).items():
-                        parameters.append(
-                            ToolParameter(
-                                name=param_name,
-                                parameter_type=param_schema.get("type", "string"),
-                                description=param_schema.get("description", ""),
-                                required=param_name in required_params,
-                                default=param_schema.get("default"),
-                            )
-                        )
-                    tools.append(
-                        ToolDef(
-                            name=tool.name,
-                            description=tool.description,
-                            parameters=parameters,
-                            metadata={"endpoint": self.endpoint},
-                            identifier=tool.name  # Using name as identifier
-                        )
-                    )
-                return tools
-            
-            return await self._safe_sse_operation(_operation)
-        
-        return await self._execute_with_retry("list_tools", _list_tools_operation)
+        if self._session is None:
+            return await self._one_shot(self._list_tools)
+        return await self._list_tools()
 
-    async def invoke_tool(self, tool_name: str, kwargs: Dict[str, Any]) -> ToolInvocationResult:
-        """Invoke a specific tool with parameters
-        
+    async def _list_tools(self) -> List[ToolDef]:
+        session = self._ensure_connected()
+        tools_result = await session.list_tools()
+        tools = []
+
+        for tool in tools_result.tools:
+            parameters = []
+            required_params = tool.inputSchema.get("required", [])
+            for param_name, param_schema in tool.inputSchema.get("properties", {}).items():
+                parameters.append(
+                    ToolParameter(
+                        name=param_name,
+                        parameter_type=param_schema.get("type", "string"),
+                        description=param_schema.get("description", ""),
+                        required=param_name in required_params,
+                        default=param_schema.get("default"),
+                    )
+                )
+            tools.append(
+                ToolDef(
+                    name=tool.name,
+                    description=tool.description or "",
+                    parameters=parameters,
+                    metadata={"endpoint": self.endpoint},
+                    identifier=tool.name,
+                )
+            )
+        return tools
+
+    async def call_tool(self, tool_name: str, arguments: Optional[Dict[str, Any]] = None) -> ToolInvocationResult:
+        """Invoke a specific tool with parameters.
+
         Args:
             tool_name: Name of the tool to invoke
-            kwargs: Dictionary of parameters to pass to the tool
-            
+            arguments: Dictionary of arguments to pass to the tool
+
         Returns:
             ToolInvocationResult containing the tool's response
-            
-        Raises:
-            MCPConnectionError: If connection fails
-            MCPTimeoutError: If operation times out
         """
-        async def _invoke_tool_operation():
-            async def _operation(session):
-                result = await session.call_tool(tool_name, kwargs)
-                return ToolInvocationResult(
-                    content="\n".join([result.model_dump_json() for result in result.content]),
-                    error_code=1 if result.isError else 0,
-                )
-            
-            return await self._safe_sse_operation(_operation)
-        
-        return await self._execute_with_retry(f"invoke_tool({tool_name})", _invoke_tool_operation)
+        if self._session is None:
+            return await self._one_shot(lambda: self._call_tool(tool_name, arguments))
+        return await self._call_tool(tool_name, arguments)
+
+    async def _call_tool(self, tool_name: str, arguments: Optional[Dict[str, Any]] = None) -> ToolInvocationResult:
+        session = self._ensure_connected()
+        result = await session.call_tool(tool_name, arguments=arguments or {})
+
+        # Build text content from content blocks
+        text_parts = []
+        raw_content = []
+        for block in result.content:
+            raw_content.append(block)
+            if hasattr(block, 'text'):
+                text_parts.append(block.text)
+            else:
+                text_parts.append(block.model_dump_json())
+
+        return ToolInvocationResult(
+            content="\n".join(text_parts),
+            error_code=1 if result.isError else 0,
+            structured_content=getattr(result, 'structuredContent', None),
+            raw_content=raw_content,
+        )
+
+    # Backward compatibility alias
+    async def invoke_tool(self, tool_name: str, kwargs: Dict[str, Any]) -> ToolInvocationResult:
+        """Backward-compatible alias for call_tool()."""
+        return await self.call_tool(tool_name, arguments=kwargs)
 
     async def check_connection(self) -> bool:
-        """Check if the MCP endpoint is reachable
-        
-        Returns:
-            True if connection is successful, False otherwise
-        """
+        """Check if the MCP endpoint is reachable."""
         try:
             await self.list_tools()
             return True
-        except Exception as e:
-            logger.debug(f"Connection check failed: {str(e)}")
+        except Exception:
             return False
 
     def get_endpoint_info(self) -> Dict[str, Any]:
-        """Get information about the configured endpoint
-        
-        Returns:
-            Dictionary with endpoint information
-        """
+        """Get information about the configured endpoint."""
         parsed = urlparse(self.endpoint)
         return {
             "endpoint": self.endpoint,
+            "transport": self.transport,
             "scheme": parsed.scheme,
             "hostname": parsed.hostname,
             "port": parsed.port,
             "path": parsed.path,
             "timeout": self.timeout,
-            "max_retries": self.max_retries
+            "connected": self._session is not None,
         }

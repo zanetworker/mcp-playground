@@ -1,108 +1,285 @@
 """
-Tests for the MCP SSE Client.
+Tests for the MCP Client.
 """
 
-import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
 import asyncio
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 from mcp_playground import MCPClient, ToolDef, ToolParameter, ToolInvocationResult
+from mcp_playground.client import MCPConnectionError, MCPTimeoutError
 
 
-class TestMCPClient(unittest.TestCase):
-    """Test cases for the MCPClient class."""
+class TestMCPClientInit:
+    """Test MCPClient initialization."""
 
-    def setUp(self):
-        """Set up test fixtures."""
-        self.endpoint = "http://localhost:8000/sse"
-        self.client = MCPClient(self.endpoint)
+    def test_init_valid_endpoint_default_transport(self):
+        client = MCPClient("http://localhost:8000/mcp")
+        assert client.endpoint == "http://localhost:8000/mcp"
+        assert client.transport == "streamable-http"
+        assert client.timeout == 30.0
 
-    def test_init_valid_endpoint(self):
-        """Test initialization with a valid endpoint."""
-        client = MCPClient(self.endpoint)
-        self.assertEqual(client.endpoint, self.endpoint)
+    def test_init_valid_endpoint_sse_transport(self):
+        client = MCPClient("http://localhost:8000/sse", transport="sse")
+        assert client.transport == "sse"
 
-    def test_init_invalid_endpoint(self):
-        """Test initialization with an invalid endpoint."""
-        with self.assertRaises(ValueError):
-            MCPClient("ftp://example.com/sse")
+    def test_init_invalid_scheme(self):
+        with pytest.raises(ValueError, match="HTTP"):
+            MCPClient("ftp://example.com/mcp")
 
+    def test_init_invalid_transport(self):
+        with pytest.raises(ValueError, match="Transport"):
+            MCPClient("http://localhost:8000/mcp", transport="websocket")
+
+    def test_init_custom_timeout(self):
+        client = MCPClient("http://localhost:8000/mcp", timeout=60.0)
+        assert client.timeout == 60.0
+
+    def test_init_not_connected(self):
+        client = MCPClient("http://localhost:8000/mcp")
+        assert client._session is None
+
+
+class TestMCPClientEndpointInfo:
+    """Test get_endpoint_info method."""
+
+    def test_endpoint_info_streamable_http(self):
+        client = MCPClient("http://localhost:8000/mcp")
+        info = client.get_endpoint_info()
+        assert info["endpoint"] == "http://localhost:8000/mcp"
+        assert info["transport"] == "streamable-http"
+        assert info["scheme"] == "http"
+        assert info["hostname"] == "localhost"
+        assert info["port"] == 8000
+        assert info["path"] == "/mcp"
+        assert info["connected"] is False
+
+    def test_endpoint_info_sse(self):
+        client = MCPClient("https://example.com/sse", transport="sse")
+        info = client.get_endpoint_info()
+        assert info["transport"] == "sse"
+        assert info["scheme"] == "https"
+
+
+class TestMCPClientContextManager:
+    """Test context manager behavior."""
+
+    @pytest.mark.asyncio
+    @patch("mcp_playground.client.streamable_http_client")
+    @patch("mcp_playground.client.ClientSession")
+    async def test_context_manager_connects_and_disconnects(self, mock_session_cls, mock_transport):
+        mock_read = MagicMock()
+        mock_write = MagicMock()
+        mock_transport.return_value.__aenter__ = AsyncMock(return_value=(mock_read, mock_write, None))
+        mock_transport.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock()
+        mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        async with MCPClient("http://localhost:8000/mcp") as client:
+            assert client._session is not None
+
+    @pytest.mark.asyncio
     @patch("mcp_playground.client.sse_client")
     @patch("mcp_playground.client.ClientSession")
-    def test_list_tools(self, mock_session_class, mock_sse_client):
-        """Test listing tools from the MCP endpoint."""
-        # Set up mocks
-        mock_streams = MagicMock()
-        mock_sse_client.return_value.__aenter__.return_value = mock_streams
-        
+    async def test_context_manager_sse_transport(self, mock_session_cls, mock_transport):
+        mock_read = MagicMock()
+        mock_write = MagicMock()
+        mock_transport.return_value.__aenter__ = AsyncMock(return_value=(mock_read, mock_write))
+        mock_transport.return_value.__aexit__ = AsyncMock(return_value=None)
+
         mock_session = AsyncMock()
-        mock_session_class.return_value.__aenter__.return_value = mock_session
-        
-        # Mock the list_tools response
+        mock_session.initialize = AsyncMock()
+        mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        async with MCPClient("http://localhost:8000/sse", transport="sse") as client:
+            assert client._session is not None
+
+
+class TestMCPClientListTools:
+    """Test list_tools method."""
+
+    @pytest.mark.asyncio
+    @patch("mcp_playground.client.streamable_http_client")
+    @patch("mcp_playground.client.ClientSession")
+    async def test_list_tools(self, mock_session_cls, mock_transport):
+        mock_read = MagicMock()
+        mock_write = MagicMock()
+        mock_transport.return_value.__aenter__ = AsyncMock(return_value=(mock_read, mock_write, None))
+        mock_transport.return_value.__aexit__ = AsyncMock(return_value=None)
+
         mock_tool = MagicMock()
         mock_tool.name = "test_tool"
         mock_tool.description = "A test tool"
         mock_tool.inputSchema = {
             "properties": {
-                "param1": {
-                    "type": "string",
-                    "description": "A test parameter"
-                }
-            }
+                "param1": {"type": "string", "description": "A test parameter"}
+            },
+            "required": ["param1"],
         }
-        
+
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock()
         mock_tools_result = MagicMock()
         mock_tools_result.tools = [mock_tool]
-        mock_session.list_tools.return_value = mock_tools_result
-        
-        # Run the test
-        loop = asyncio.get_event_loop()
-        tools = loop.run_until_complete(self.client.list_tools())
-        
-        # Assertions
-        self.assertEqual(len(tools), 1)
-        self.assertEqual(tools[0].name, "test_tool")
-        self.assertEqual(tools[0].description, "A test tool")
-        self.assertEqual(len(tools[0].parameters), 1)
-        self.assertEqual(tools[0].parameters[0].name, "param1")
-        self.assertEqual(tools[0].parameters[0].parameter_type, "string")
-        self.assertEqual(tools[0].parameters[0].description, "A test parameter")
+        mock_session.list_tools = AsyncMock(return_value=mock_tools_result)
 
-    @patch("mcp_playground.client.sse_client")
+        mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        async with MCPClient("http://localhost:8000/mcp") as client:
+            tools = await client.list_tools()
+
+        assert len(tools) == 1
+        assert tools[0].name == "test_tool"
+        assert tools[0].description == "A test tool"
+        assert len(tools[0].parameters) == 1
+        assert tools[0].parameters[0].name == "param1"
+        assert tools[0].parameters[0].parameter_type == "string"
+        assert tools[0].parameters[0].required is True
+
+
+class TestMCPClientCallTool:
+    """Test call_tool method."""
+
+    @pytest.mark.asyncio
+    @patch("mcp_playground.client.streamable_http_client")
     @patch("mcp_playground.client.ClientSession")
-    def test_invoke_tool(self, mock_session_class, mock_sse_client):
-        """Test invoking a tool with parameters."""
-        # Set up mocks
-        mock_streams = MagicMock()
-        mock_sse_client.return_value.__aenter__.return_value = mock_streams
-        
-        mock_session = AsyncMock()
-        mock_session_class.return_value.__aenter__.return_value = mock_session
-        
-        # Mock the call_tool response
-        mock_content_item = MagicMock()
-        mock_content_item.model_dump_json.return_value = '{"result": "success"}'
-        
+    async def test_call_tool(self, mock_session_cls, mock_transport):
+        mock_read = MagicMock()
+        mock_write = MagicMock()
+        mock_transport.return_value.__aenter__ = AsyncMock(return_value=(mock_read, mock_write, None))
+        mock_transport.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        mock_content = MagicMock()
+        mock_content.text = "result: 15"
+        mock_content.model_dump_json = MagicMock(return_value='{"text": "result: 15"}')
+
         mock_result = MagicMock()
-        mock_result.content = [mock_content_item]
+        mock_result.content = [mock_content]
         mock_result.isError = False
-        
-        mock_session.call_tool.return_value = mock_result
-        
-        # Run the test
-        loop = asyncio.get_event_loop()
-        result = loop.run_until_complete(
-            self.client.invoke_tool("test_tool", {"param1": "value1"})
-        )
-        
-        # Assertions
-        self.assertEqual(result.content, '{"result": "success"}')
-        self.assertEqual(result.error_code, 0)
-        
-        # Verify the call_tool was called with the correct arguments
-        mock_session.call_tool.assert_called_once_with(
-            "test_tool", {"param1": "value1"}
-        )
+
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.call_tool = AsyncMock(return_value=mock_result)
+
+        mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        async with MCPClient("http://localhost:8000/mcp") as client:
+            result = await client.call_tool("calculator", arguments={"a": 10, "b": 5})
+
+        assert result.content == "result: 15"
+        assert result.error_code == 0
+        mock_session.call_tool.assert_called_once_with("calculator", arguments={"a": 10, "b": 5})
+
+    @pytest.mark.asyncio
+    @patch("mcp_playground.client.streamable_http_client")
+    @patch("mcp_playground.client.ClientSession")
+    async def test_call_tool_error(self, mock_session_cls, mock_transport):
+        mock_read = MagicMock()
+        mock_write = MagicMock()
+        mock_transport.return_value.__aenter__ = AsyncMock(return_value=(mock_read, mock_write, None))
+        mock_transport.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        mock_content = MagicMock()
+        mock_content.text = "Error: division by zero"
+
+        mock_result = MagicMock()
+        mock_result.content = [mock_content]
+        mock_result.isError = True
+
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.call_tool = AsyncMock(return_value=mock_result)
+
+        mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        async with MCPClient("http://localhost:8000/mcp") as client:
+            result = await client.call_tool("calculator", arguments={"a": 1, "b": 0})
+
+        assert result.error_code == 1
+
+    @pytest.mark.asyncio
+    @patch("mcp_playground.client.streamable_http_client")
+    @patch("mcp_playground.client.ClientSession")
+    async def test_invoke_tool_backward_compat(self, mock_session_cls, mock_transport):
+        mock_read = MagicMock()
+        mock_write = MagicMock()
+        mock_transport.return_value.__aenter__ = AsyncMock(return_value=(mock_read, mock_write, None))
+        mock_transport.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        mock_content = MagicMock()
+        mock_content.text = "ok"
+
+        mock_result = MagicMock()
+        mock_result.content = [mock_content]
+        mock_result.isError = False
+
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.call_tool = AsyncMock(return_value=mock_result)
+
+        mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        async with MCPClient("http://localhost:8000/mcp") as client:
+            result = await client.invoke_tool("test", {"key": "val"})
+
+        assert result.error_code == 0
+        mock_session.call_tool.assert_called_once_with("test", arguments={"key": "val"})
 
 
-if __name__ == "__main__":
-    unittest.main()
+class TestMCPClientOneShot:
+    """Test one-shot (non-context-manager) usage."""
+
+    @pytest.mark.asyncio
+    @patch("mcp_playground.client.streamable_http_client")
+    @patch("mcp_playground.client.ClientSession")
+    async def test_one_shot_list_tools(self, mock_session_cls, mock_transport):
+        mock_read = MagicMock()
+        mock_write = MagicMock()
+        mock_transport.return_value.__aenter__ = AsyncMock(return_value=(mock_read, mock_write, None))
+        mock_transport.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        mock_tool = MagicMock()
+        mock_tool.name = "tool1"
+        mock_tool.description = "Tool one"
+        mock_tool.inputSchema = {"properties": {}, "required": []}
+
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock()
+        mock_tools_result = MagicMock()
+        mock_tools_result.tools = [mock_tool]
+        mock_session.list_tools = AsyncMock(return_value=mock_tools_result)
+
+        mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        client = MCPClient("http://localhost:8000/mcp")
+        tools = await client.list_tools()
+
+        assert len(tools) == 1
+        assert tools[0].name == "tool1"
+
+
+class TestToolInvocationResult:
+    """Test ToolInvocationResult dataclass."""
+
+    def test_basic_result(self):
+        result = ToolInvocationResult(content="hello", error_code=0)
+        assert result.content == "hello"
+        assert result.error_code == 0
+        assert result.structured_content is None
+        assert result.raw_content == []
+
+    def test_result_with_structured_content(self):
+        result = ToolInvocationResult(
+            content="hello",
+            error_code=0,
+            structured_content={"key": "value"},
+        )
+        assert result.structured_content == {"key": "value"}
